@@ -29,6 +29,7 @@ const (
 	StateTesting
 	StateRunning
 	StateNoLuck
+	StateClosing
 )
 
 type Options struct {
@@ -100,7 +101,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cancel != nil {
 				m.cancel()
 			}
-			return m, tea.Sequence(m.stopRunning(), tea.Quit)
+			m.state = StateClosing
+			m.viewport.SetContent(m.body())
+			return m, m.stopRunning()
 		case "ctrl+o":
 			m.rawLogMode = !m.rawLogMode
 			m.viewport.SetContent(m.body())
@@ -130,6 +133,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, waitForFlowUpdate(m.flowC)
+	case cleanupDoneMsg:
+		return m, tea.Quit
 	}
 
 	m.viewport.SetContent(m.body())
@@ -174,6 +179,8 @@ type flowUpdateMsg struct {
 	err           error
 	done          bool
 }
+
+type cleanupDoneMsg struct{}
 
 func (m Model) ensureAssets() tea.Cmd {
 	return func() tea.Msg {
@@ -235,6 +242,10 @@ func (m Model) handleAssetUpdate(msg assetUpdateMsg) (Model, tea.Cmd) {
 }
 
 func (m Model) handleFlowUpdate(msg flowUpdateMsg) Model {
+	if m.state == StateClosing {
+		return m
+	}
+
 	switch msg.kind {
 	case flowTesting:
 		m.state = StateTesting
@@ -347,7 +358,7 @@ func (m Model) stopRunning() tea.Cmd {
 			m.app.Runner.Cleanup()
 		}
 
-		return nil
+		return cleanupDoneMsg{}
 	}
 }
 
@@ -361,6 +372,8 @@ func (m Model) body() string {
 		return m.logContent()
 	case StateNoLuck:
 		return m.noLuckContent()
+	case StateClosing:
+		return m.closingContent()
 	default:
 		return ""
 	}
@@ -426,6 +439,15 @@ func (m Model) noLuckContent() string {
 	}, "\n")
 }
 
+func (m Model) closingContent() string {
+	return strings.Join([]string{
+		sectionTitleStyle.Render(m.spinner.View() + " Cleaning up"),
+		cleanLog("winws", "stopping process"),
+		cleanLog("filters", "removing WinDivert services"),
+		cleanLog("exit", "closing session"),
+	}, "\n")
+}
+
 func (m Model) footer() string {
 	logMode := "raw"
 	if m.rawLogMode {
@@ -452,6 +474,8 @@ func (m Model) stateBadge() string {
 		return badgeStyle.Copy().Foreground(lipgloss.Color("42")).Render("running")
 	case StateNoLuck:
 		return badgeStyle.Copy().Foreground(lipgloss.Color("196")).Render("stopped")
+	case StateClosing:
+		return badgeStyle.Copy().Foreground(lipgloss.Color("213")).Render("cleanup")
 	default:
 		return badgeStyle.Render("idle")
 	}
@@ -496,11 +520,11 @@ func progressLine(current, total int64) string {
 		current = total
 	}
 
-	const width = 28
+	const width = 24
 	filled := int(current * width / total)
-	bar := strings.Repeat("=", filled) + strings.Repeat("-", width-filled)
+	bar := progressFilledStyle.Render(strings.Repeat("■", filled)) + progressEmptyStyle.Render(strings.Repeat("□", width-filled))
 
-	return labelStyle.Render("progress") + " " + spinnerStyle.Render(bar) + mutedStyle.Render(fmt.Sprintf(" %d%%", current*100/total))
+	return labelStyle.Render("progress") + " " + bar + mutedStyle.Render(fmt.Sprintf(" %d%%", current*100/total))
 }
 
 func tail(lines []string, limit int) []string {
@@ -581,6 +605,10 @@ var (
 			Foreground(lipgloss.Color("245"))
 	spinnerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39"))
+	progressFilledStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("39"))
+	progressEmptyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("238"))
 	panelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("236")).
