@@ -647,9 +647,7 @@ var (
 			Foreground(lipgloss.Color("250"))
 	logKindStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("230")).
-			Background(lipgloss.Color("31")).
-			Padding(0, 1)
+			Foreground(lipgloss.Color("39"))
 	logMessageStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
 )
