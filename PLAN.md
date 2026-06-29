@@ -5,12 +5,48 @@ Single portable `.exe`. No dependencies on flowseal folder.
 
 ---
 
+## What sieve does
+
+Пользователь запускает `sieve.exe`. Дальше всё происходит само:
+
+**1. Старт**
+Программа проверяет права администратора. Если их нет — показывает UAC-запрос и перезапускает себя от админа.
+
+**2. Обновление ассетов**
+Проверяет последний релиз flowseal на GitHub. Если локальных файлов нет или версия устарела — скачивает архив (`winws.exe`, `.bin` файлы, листы хостов) и распаковывает в `%APPDATA%\sieve\`. Прогресс виден в TUI.
+
+**3. Перебор конфигов**
+Запускает 20 захардкоженных конфигов winws один за одним. Порядок умный:
+- сначала тот, что сработал в прошлый раз
+- потом те, что когда-либо работали (от свежих к старым)
+- потом непроверенные
+- в конце заведомо нерабочие
+
+Каждый конфиг: запустить winws → подождать 1-2 сек → проверить HTTP-соединение к `discord.com` и `www.youtube.com` → если оба ответили — стоп. Таймаут проверки 5 сек по умолчанию, меняется флагом `--test-timeout N`.
+
+**4а. Нашли рабочий**
+winws остаётся запущенным с победившим конфигом. TUI переходит в режим "живого лога" — показывает имя конфига и стриминг вывода winws в реальном времени. Результат сохраняется в кэш (`%APPDATA%\sieve\cache.json`) чтобы в следующий раз начать с него.
+
+**4б. Ничего не сработало**
+TUI показывает сообщение что ни один конфиг не помог. winws не запущен. Пользователь может нажать `q` и выйти.
+
+**Выход**
+`q` или `Ctrl+C` — убивает winws если запущен, чисто завершается.
+
+---
+
+## Flags
+
+- `--test-timeout N` — таймаут проверки соединения в секундах (default: 5)
+
+---
+
 ## Phase 1 — Project skeleton
 
 - [ ] `go mod init github.com/your-name/sieve`
 - [ ] Add dependencies: bubbletea, lipgloss, bubbles
 - [ ] Directory structure: `internal/{admin,assets,configs,runner,tester,cache,ui}`
-- [ ] `main.go`: parse flags (`--test-timeout`), wire everything together
+- [ ] `main.go`: parse flags, wire everything together
 - [ ] `.gitignore`
 
 ## Phase 2 — Admin elevation
@@ -54,7 +90,7 @@ Single portable `.exe`. No dependencies on flowseal folder.
 ## Phase 7 — Tester
 
 - [ ] `internal/tester`: HTTPS GET to `discord.com` and `www.youtube.com`
-- [ ] Custom `http.Client` with `--test-timeout` timeout (default 5s), no redirects limit
+- [ ] Custom `http.Client` with `--test-timeout` timeout (default 5s)
 - [ ] Both must return 2xx/3xx to count as success
 - [ ] Returns `TestResult{Discord, YouTube bool, Err error}`
 
@@ -66,16 +102,15 @@ Single portable `.exe`. No dependencies on flowseal folder.
   - `StateTesting` — iterating configs, show current name + progress (N/20)
   - `StateRunning` — found working config, winws is live, show scrolling log
   - `StateNoLuck` — nothing worked, friendly message
-- [ ] `q` / `ctrl+c` to quit (and kill winws if running)
+- [ ] `q` / `ctrl+c` to quit (kills winws if running)
 - [ ] Lipgloss for layout: header, status line, log pane
 
 ## Phase 9 — Wire up + polish
 
 - [ ] Main loop: elevate → update assets → load cache → sort configs → test each → keep winner
-- [ ] `--test-timeout n` flag (seconds)
+- [ ] `--test-timeout N` flag (int seconds, default 5)
 - [ ] Clean exit: kill winws on quit
-- [ ] Build: `GOOS=windows GOARCH=amd64 go build -ldflags="-H windowsgui" -o sieve.exe .`
-  (or `-H console` — decide based on TUI behavior)
+- [ ] Build: `GOOS=windows GOARCH=amd64 go build -o sieve.exe .`
 
 ## Phase 10 — Release
 
@@ -85,8 +120,9 @@ Single portable `.exe`. No dependencies on flowseal folder.
 
 ---
 
-## Open questions
+## Decisions made
 
-- [ ] Should `--test-timeout` accept float (e.g. `2.5`) or just int seconds?
-- [ ] Show per-config test history in TUI or just current run?
-- [ ] `-H windowsgui` hides console but TUI still works in Windows Terminal — test this
+- `-H console` (default) — TUI требует консоль
+- `--test-timeout` принимает int (секунды)
+- История в TUI — только текущий прогон
+- Ассеты качаются с flowseal репо, не с bol-van
