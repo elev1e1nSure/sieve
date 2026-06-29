@@ -43,11 +43,11 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 1 — Project skeleton
 
-- [ ] `go mod init github.com/your-name/sieve`
-- [ ] Add dependencies: bubbletea, lipgloss, bubbles
-- [ ] Directory structure: `internal/{admin,assets,configs,runner,tester,cache,ui}`
-- [ ] `main.go`: parse flags, wire everything together
-- [ ] `.gitignore`
+- [x] `go mod init github.com/your-name/sieve`
+- [x] Add dependencies: bubbletea, lipgloss, bubbles
+- [x] Directory structure: `internal/{admin,assets,configs,runner,tester,cache,ui}`
+- [x] `main.go`: parse flags, wire everything together
+- [x] `.gitignore`
 
 ## Phase 2 — Admin elevation
 
