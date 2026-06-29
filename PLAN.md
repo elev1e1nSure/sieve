@@ -57,11 +57,11 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 3 — Asset manager
 
-- [ ] `internal/assets`: define install dir (`%APPDATA%\sieve`)
-- [ ] On every launch: fetch latest release metadata from flowseal GitHub API
-- [ ] Compare with local version file (`version.txt`)
-- [ ] If outdated or missing: download release zip, extract `bin/` and `lists/` into install dir
-- [ ] Show progress in TUI during download
+- [x] `internal/assets`: define install dir (`%APPDATA%\sieve`)
+- [x] On every launch: fetch latest release metadata from flowseal GitHub API
+- [x] Compare with local version file (`version.txt`)
+- [x] If outdated or missing: download release zip, extract `bin/` and `lists/` into install dir
+- [x] Show progress in TUI during download
 
 ## Phase 4 — Configs
 
