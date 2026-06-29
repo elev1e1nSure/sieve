@@ -71,14 +71,14 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 5 — Cache
 
-- [ ] `internal/cache`: JSON file at `%APPDATA%\sieve\cache.json`
-- [ ] Stores: last working config name, per-config success/fail counts, last success timestamp
-- [ ] `SortedConfigs(all []Config) []Config`:
+- [x] `internal/cache`: JSON file at `%APPDATA%\sieve\cache.json`
+- [x] Stores: last working config name, per-config success/fail counts, last success timestamp
+- [x] `SortedConfigs(all []Config) []Config`:
   - 1st: last working config (if any)
   - 2nd: previously successful, sorted by recency
   - 3rd: untested
   - 4th: previously failed
-- [ ] Load on startup, save after each test result
+- [x] Load on startup, save after each test result
 
 ## Phase 6 — Runner
 
