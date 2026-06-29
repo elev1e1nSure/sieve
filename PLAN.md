@@ -114,9 +114,9 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 10 — Release
 
-- [ ] Tag v0.1.0
-- [ ] GitHub Actions: build `.exe` on push to `main`, attach to release
-- [ ] `README.md`: one-paragraph description + download link
+- [x] Tag v0.1.0
+- [x] GitHub Actions: build `.exe` on push to `main`, attach to release
+- [x] `README.md`: one-paragraph description + download link
 
 ---
 
