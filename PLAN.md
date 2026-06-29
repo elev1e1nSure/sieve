@@ -82,10 +82,10 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 6 — Runner
 
-- [ ] `internal/runner`: start `winws.exe` with given args as a subprocess
-- [ ] Capture stdout+stderr → channel for live log streaming
-- [ ] `Stop()`: kill process, wait for WFP filters to clear (small sleep)
-- [ ] At startup: kill any existing winws.exe before starting new one
+- [x] `internal/runner`: start `winws.exe` with given args as a subprocess
+- [x] Capture stdout+stderr → channel for live log streaming
+- [x] `Stop()`: kill process, wait for WFP filters to clear (small sleep)
+- [x] At startup: kill any existing winws.exe before starting new one
 
 ## Phase 7 — Tester
 
