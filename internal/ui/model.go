@@ -411,15 +411,9 @@ func (m Model) noLuckContent() string {
 	}, "\n")
 }
 
-func (m Model) statusLine() string {
-	return fmt.Sprintf("timeout %s   configs %d", m.app.Options.TestTimeout, len(m.app.Configs))
-}
-
 func (m Model) footer() string {
 	return lipgloss.JoinHorizontal(
 		lipgloss.Center,
-		subtleStyle.Render(m.statusLine()),
-		"  ",
 		hint("q", "quit"),
 		" ",
 		hint("ctrl+c", "cleanup"),
@@ -521,8 +515,6 @@ var (
 			Bold(true).
 			Foreground(lipgloss.Color("252"))
 	mutedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
-	subtleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245"))
 	hintStyle = lipgloss.NewStyle().
 			Bold(true).
