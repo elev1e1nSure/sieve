@@ -65,9 +65,9 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 4 — Configs
 
-- [ ] `internal/configs`: hardcode all 20 winws configs extracted from flowseal bat files
-- [ ] Each config: `Name string`, `Args []string` with `{BIN}` and `{LISTS}` placeholders
-- [ ] `Resolve(binDir, listsDir string) []string` — fills in real paths at runtime
+- [x] `internal/configs`: hardcode all 20 winws configs extracted from flowseal bat files
+- [x] Each config: `Name string`, `Args []string` with `{BIN}` and `{LISTS}` placeholders
+- [x] `Resolve(binDir, listsDir string) []string` — fills in real paths at runtime
 
 ## Phase 5 — Cache
 
