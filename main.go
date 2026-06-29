@@ -18,6 +18,15 @@ import (
 )
 
 func main() {
+	adminService := admin.NewService()
+	if !adminService.IsAdmin() {
+		if err := adminService.ElevateAndRestart(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to request admin rights: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	testTimeout := flag.Int("test-timeout", 5, "connection test timeout in seconds")
 	flag.Parse()
 
@@ -27,7 +36,7 @@ func main() {
 	}
 
 	app := ui.App{
-		Admin:   admin.NewService(),
+		Admin:   adminService,
 		Assets:  assets.NewManager(),
 		Cache:   cache.NewStore(),
 		Configs: configs.All(),

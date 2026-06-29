@@ -51,9 +51,9 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 2 — Admin elevation
 
-- [ ] `internal/admin`: `IsAdmin() bool` via Windows API
-- [ ] `ElevateAndRestart()`: re-launch self with `ShellExecute` + "runas" verb if not admin
-- [ ] Called at startup before anything else
+- [x] `internal/admin`: `IsAdmin() bool` via Windows API
+- [x] `ElevateAndRestart()`: re-launch self with `ShellExecute` + "runas" verb if not admin
+- [x] Called at startup before anything else
 
 ## Phase 3 — Asset manager
 
