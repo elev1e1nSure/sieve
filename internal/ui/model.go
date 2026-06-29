@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -47,6 +48,7 @@ type App struct {
 type Model struct {
 	app       App
 	state     State
+	spinner   spinner.Model
 	viewport  viewport.Model
 	assets    assets.Info
 	progress  assets.Progress
@@ -66,11 +68,17 @@ type Model struct {
 
 func NewModel(app App) Model {
 	vp := viewport.New(80, 12)
+	vp.SetContent("Starting.")
+	spin := spinner.New(
+		spinner.WithSpinner(spinner.Dot),
+		spinner.WithStyle(spinnerStyle),
+	)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return Model{
 		app:         app,
 		state:       StateUpdating,
+		spinner:     spin,
 		viewport:    vp,
 		progressC:   make(chan assetUpdateMsg),
 		ctx:         ctx,
@@ -80,7 +88,7 @@ func NewModel(app App) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.ensureAssets(), waitForAssetUpdate(m.progressC))
+	return tea.Batch(m.ensureAssets(), waitForAssetUpdate(m.progressC), m.spinner.Tick)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -94,8 +102,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Sequence(m.stopRunning(), tea.Quit)
 		}
 	case tea.WindowSizeMsg:
-		m.viewport.Width = msg.Width
-		m.viewport.Height = max(1, msg.Height-4)
+		m.viewport.Width = max(1, msg.Width-4)
+		m.viewport.Height = max(1, msg.Height-7)
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		m.viewport.SetContent(m.body())
+		if m.state == StateRunning {
+			m.viewport.GotoBottom()
+		}
+		return m, cmd
 	case assetUpdateMsg:
 		var cmd tea.Cmd
 		m, cmd = m.handleAssetUpdate(msg)
@@ -116,10 +132,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
-	header := titleStyle.Render("sieve")
+	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render("sieve"), " ", m.stateBadge())
 	status := statusStyle.Render(m.statusLine())
+	panel := panelStyle.Width(m.viewport.Width + 2).Render(m.viewport.View())
 
-	return header + "\n" + m.viewport.View() + "\n" + status
+	return header + "\n" + panel + "\n" + status
 }
 
 type assetUpdateMsg struct {
@@ -233,6 +250,9 @@ func (m Model) handleFlowUpdate(msg flowUpdateMsg) Model {
 	}
 
 	m.viewport.SetContent(m.body())
+	if m.state == StateRunning {
+		m.viewport.GotoBottom()
+	}
 	return m
 }
 
@@ -338,31 +358,59 @@ func (m Model) body() string {
 }
 
 func (m Model) updatingContent() string {
+	title := sectionTitleStyle.Render(m.spinner.View() + " Updating assets")
 	if m.progress.Total > 0 {
-		return fmt.Sprintf("%s\n%s\n%d / %d bytes", m.progress.Phase, m.progress.Message, m.progress.Current, m.progress.Total)
+		return strings.Join([]string{
+			title,
+			keyValue("phase", m.progress.Phase),
+			keyValue("status", m.progress.Message),
+			progressLine(m.progress.Current, m.progress.Total),
+		}, "\n")
 	}
 
-	return strings.TrimSpace(fmt.Sprintf("%s\n%s", m.progress.Phase, m.progress.Message))
+	return strings.Join([]string{
+		title,
+		keyValue("phase", fallback(m.progress.Phase, "starting")),
+		keyValue("status", fallback(m.progress.Message, "preparing local cache")),
+	}, "\n")
 }
 
 func (m Model) testingContent() string {
-	return fmt.Sprintf("Testing configs\ncurrent: %s\nprogress: %d/%d", m.currentConfig, m.configIndex, m.configTotal)
+	return strings.Join([]string{
+		sectionTitleStyle.Render(m.spinner.View() + " Testing configs"),
+		keyValue("current", fallback(m.currentConfig, "starting")),
+		keyValue("progress", fmt.Sprintf("%d/%d", m.configIndex, m.configTotal)),
+		progressLine(int64(m.configIndex), int64(m.configTotal)),
+		mutedStyle.Render("Trying configs in cached success order."),
+	}, "\n")
 }
 
 func (m Model) logContent() string {
 	if len(m.logs) == 0 {
-		return fmt.Sprintf("Running: %s\nwaiting for winws output", m.runningConfig)
+		return strings.Join([]string{
+			sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig)),
+			mutedStyle.Render("waiting for winws output"),
+		}, "\n")
 	}
 
-	return fmt.Sprintf("Running: %s\n%s", m.runningConfig, strings.Join(m.logs, "\n"))
+	return strings.Join([]string{
+		sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig)),
+		logStyle.Render(strings.Join(tail(m.logs, 200), "\n")),
+	}, "\n")
 }
 
 func (m Model) noLuckContent() string {
 	if m.err != nil {
-		return "Run failed:\n" + m.err.Error()
+		return strings.Join([]string{
+			sectionTitleStyle.Render(errorStyle.Render("failed")),
+			errorStyle.Render(m.err.Error()),
+		}, "\n")
 	}
 
-	return "No working config found."
+	return strings.Join([]string{
+		sectionTitleStyle.Render(warnStyle.Render("no working config")),
+		mutedStyle.Render("Press q to quit."),
+	}, "\n")
 }
 
 func (m Model) statusLine() string {
@@ -376,7 +424,22 @@ func (m Model) statusLine() string {
 		state = "no luck"
 	}
 
-	return fmt.Sprintf("%s | timeout %s | configs %d | q quit", state, m.app.Options.TestTimeout, len(m.app.Configs))
+	return fmt.Sprintf("%s | timeout %s | configs %d | q quit | ctrl+c cleanup", state, m.app.Options.TestTimeout, len(m.app.Configs))
+}
+
+func (m Model) stateBadge() string {
+	switch m.state {
+	case StateUpdating:
+		return badgeStyle.Copy().Foreground(lipgloss.Color("39")).Render("updating")
+	case StateTesting:
+		return badgeStyle.Copy().Foreground(lipgloss.Color("220")).Render("testing")
+	case StateRunning:
+		return badgeStyle.Copy().Foreground(lipgloss.Color("42")).Render("running")
+	case StateNoLuck:
+		return badgeStyle.Copy().Foreground(lipgloss.Color("196")).Render("stopped")
+	default:
+		return badgeStyle.Render("idle")
+	}
 }
 
 func sleepContext(ctx context.Context, delay time.Duration) bool {
@@ -391,7 +454,80 @@ func sleepContext(ctx context.Context, delay time.Duration) bool {
 	}
 }
 
+func keyValue(key, value string) string {
+	return labelStyle.Render(key) + " " + valueStyle.Render(value)
+}
+
+func fallback(value, replacement string) string {
+	if strings.TrimSpace(value) == "" {
+		return replacement
+	}
+
+	return value
+}
+
+func progressLine(current, total int64) string {
+	if total <= 0 {
+		return mutedStyle.Render("progress    waiting")
+	}
+	if current < 0 {
+		current = 0
+	}
+	if current > total {
+		current = total
+	}
+
+	const width = 28
+	filled := int(current * width / total)
+	bar := strings.Repeat("=", filled) + strings.Repeat("-", width-filled)
+
+	return labelStyle.Render("progress") + " " + spinnerStyle.Render(bar) + mutedStyle.Render(fmt.Sprintf(" %d%%", current*100/total))
+}
+
+func tail(lines []string, limit int) []string {
+	if len(lines) <= limit {
+		return lines
+	}
+
+	return lines[len(lines)-limit:]
+}
+
 var (
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("39"))
+	badgeStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("245"))
+	spinnerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("39"))
+	panelStyle = lipgloss.NewStyle().
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("238")).
+			Padding(1, 2)
+	sectionTitleStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("252")).
+				MarginBottom(1)
+	labelStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244")).
+			Width(10)
+	valueStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("252"))
+	mutedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("245"))
+	successStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("42"))
+	warnStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("220"))
+	errorStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("196"))
+	logStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("250"))
 )
