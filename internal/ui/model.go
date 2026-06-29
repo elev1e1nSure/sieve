@@ -64,6 +64,7 @@ type Model struct {
 	runningConfig string
 	process       *runner.Process
 	logs          []string
+	rawLogMode    bool
 }
 
 func NewModel(app App) Model {
@@ -100,6 +101,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancel()
 			}
 			return m, tea.Sequence(m.stopRunning(), tea.Quit)
+		case "ctrl+o":
+			m.rawLogMode = !m.rawLogMode
+			m.viewport.SetContent(m.body())
+			if m.state == StateRunning {
+				m.viewport.GotoBottom()
+			}
+			return m, nil
 		}
 	case tea.WindowSizeMsg:
 		m.viewport.Width = max(1, msg.Width-4)
@@ -239,6 +247,7 @@ func (m Model) handleFlowUpdate(msg flowUpdateMsg) Model {
 		m.runningConfig = msg.currentConfig
 		m.process = msg.process
 		m.logs = nil
+		m.rawLogMode = false
 	case flowNoLuck:
 		m.state = StateNoLuck
 		m.err = msg.err
@@ -391,10 +400,16 @@ func (m Model) logContent() string {
 			mutedStyle.Render("waiting for winws output"),
 		}, "\n")
 	}
+	if m.rawLogMode {
+		return strings.Join([]string{
+			sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig) + " " + mutedStyle.Render("raw")),
+			logStyle.Render(strings.Join(tail(m.logs, 200), "\n")),
+		}, "\n")
+	}
 
 	return strings.Join([]string{
 		sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig)),
-		logStyle.Render(strings.Join(tail(m.logs, 200), "\n")),
+		strings.Join(formatFriendlyLogs(tail(m.logs, 200)), "\n"),
 	}, "\n")
 }
 
@@ -412,11 +427,18 @@ func (m Model) noLuckContent() string {
 }
 
 func (m Model) footer() string {
+	logMode := "raw"
+	if m.rawLogMode {
+		logMode = "clean"
+	}
+
 	return lipgloss.JoinHorizontal(
 		lipgloss.Center,
 		hint("q", "quit"),
 		" ",
 		hint("ctrl+c", "cleanup"),
+		" ",
+		hint("ctrl+o", logMode),
 	)
 }
 
@@ -489,6 +511,67 @@ func tail(lines []string, limit int) []string {
 	return lines[len(lines)-limit:]
 }
 
+func formatFriendlyLogs(lines []string) []string {
+	events := make([]string, 0, len(lines))
+	seen := map[string]bool{}
+	for _, line := range lines {
+		event, ok := friendlyLogLine(line)
+		if !ok {
+			continue
+		}
+		if seen[event] {
+			continue
+		}
+
+		seen[event] = true
+		events = append(events, event)
+	}
+	if len(events) == 0 {
+		return []string{mutedStyle.Render("waiting for runtime events")}
+	}
+
+	return events
+}
+
+func friendlyLogLine(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.HasPrefix(lower, "github version"):
+		return cleanLog("engine", strings.TrimPrefix(trimmed, "github version ")), true
+	case strings.HasPrefix(lower, "we have "):
+		return cleanLog("profiles", "desync profiles ready"), true
+	case strings.HasPrefix(lower, "loaded ") && strings.Contains(lower, " hosts from "):
+		return cleanLog("hosts", loadedFileSummary(trimmed, " hosts from ")), true
+	case strings.HasPrefix(lower, "loaded ") && strings.Contains(lower, " ip/subnets from "):
+		return cleanLog("ipset", loadedFileSummary(trimmed, " ip/subnets from ")), true
+	case strings.Contains(lower, "windivert initialized"):
+		return cleanLog("capture", "traffic capture started"), true
+	case strings.Contains(lower, "error") || strings.Contains(lower, "failed"):
+		return cleanLogError(trimmed), true
+	default:
+		return "", false
+	}
+}
+
+func loadedFileSummary(line, marker string) string {
+	before, after, ok := strings.Cut(line, marker)
+	if !ok {
+		return line
+	}
+
+	count := strings.TrimPrefix(before, "Loaded ")
+	return filepath.Base(after) + "  " + count
+}
+
+func cleanLog(kind, message string) string {
+	return logKindStyle.Render(kind) + " " + logMessageStyle.Render(message)
+}
+
+func cleanLogError(message string) string {
+	return errorStyle.Render("error") + " " + logMessageStyle.Render(message)
+}
+
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -534,4 +617,11 @@ var (
 			Foreground(lipgloss.Color("196"))
 	logStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("250"))
+	logKindStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("230")).
+			Background(lipgloss.Color("31")).
+			Padding(0, 1)
+	logMessageStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252"))
 )
