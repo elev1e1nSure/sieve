@@ -2,6 +2,7 @@
 .vscode/
 
 *.exe
+*.exe~
 *.log
 
 bin/
