@@ -89,10 +89,10 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 7 — Tester
 
-- [ ] `internal/tester`: HTTPS GET to `discord.com` and `www.youtube.com`
-- [ ] Custom `http.Client` with `--test-timeout` timeout (default 5s)
-- [ ] Both must return 2xx/3xx to count as success
-- [ ] Returns `TestResult{Discord, YouTube bool, Err error}`
+- [x] `internal/tester`: HTTPS GET to `discord.com` and `www.youtube.com`
+- [x] Custom `http.Client` with `--test-timeout` timeout (default 5s)
+- [x] Both must return 2xx/3xx to count as success
+- [x] Returns `TestResult{Discord, YouTube bool, Err error}`
 
 ## Phase 8 — TUI
 
