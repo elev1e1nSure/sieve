@@ -107,10 +107,10 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 9 — Wire up + polish
 
-- [ ] Main loop: elevate → update assets → load cache → sort configs → test each → keep winner
-- [ ] `--test-timeout N` flag (int seconds, default 5)
-- [ ] Clean exit: kill winws on quit
-- [ ] Build: `GOOS=windows GOARCH=amd64 go build -o sieve.exe .`
+- [x] Main loop: elevate → update assets → load cache → sort configs → test each → keep winner
+- [x] `--test-timeout N` flag (int seconds, default 5)
+- [x] Clean exit: kill winws on quit
+- [x] Build: `GOOS=windows GOARCH=amd64 go build -o sieve.exe .`
 
 ## Phase 10 — Release
 

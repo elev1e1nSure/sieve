@@ -92,6 +92,9 @@ func (m Manager) Ensure(ctx context.Context, progress func(Progress)) (Info, err
 
 	localVersion, _ := os.ReadFile(m.VersionFile())
 	if strings.TrimSpace(string(localVersion)) == latest.TagName && m.hasRequiredDirs() {
+		if err := ensureUserListFiles(m.ListsDir()); err != nil {
+			return Info{}, err
+		}
 		return m.info(latest.TagName, false), nil
 	}
 
@@ -109,6 +112,9 @@ func (m Manager) Ensure(ctx context.Context, progress func(Progress)) (Info, err
 
 	progress(Progress{Phase: "extracting", Message: "extracting bin and lists"})
 	if err := extractBinLists(zipPath, m.InstallDir); err != nil {
+		return Info{}, err
+	}
+	if err := ensureUserListFiles(m.ListsDir()); err != nil {
 		return Info{}, err
 	}
 
@@ -349,6 +355,27 @@ func replaceDirs(stagingDir, installDir string) error {
 			return err
 		}
 		if err := os.Rename(src, dst); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func ensureUserListFiles(listsDir string) error {
+	for _, name := range []string{
+		"list-general-user.txt",
+		"list-exclude-user.txt",
+		"ipset-exclude-user.txt",
+	} {
+		path := filepath.Join(listsDir, name)
+		if _, err := os.Stat(path); err == nil {
+			continue
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
 			return err
 		}
 	}
