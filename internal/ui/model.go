@@ -133,10 +133,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) View() string {
 	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render("sieve"), " ", m.stateBadge())
-	status := statusStyle.Render(m.statusLine())
+	footer := m.footer()
 	panel := panelStyle.Width(m.viewport.Width + 2).Render(m.viewport.View())
 
-	return header + "\n" + panel + "\n" + status
+	return header + "\n" + panel + "\n" + footer
 }
 
 type assetUpdateMsg struct {
@@ -381,7 +381,6 @@ func (m Model) testingContent() string {
 		keyValue("current", fallback(m.currentConfig, "starting")),
 		keyValue("progress", fmt.Sprintf("%d/%d", m.configIndex, m.configTotal)),
 		progressLine(int64(m.configIndex), int64(m.configTotal)),
-		mutedStyle.Render("Trying configs in cached success order."),
 	}, "\n")
 }
 
@@ -409,22 +408,22 @@ func (m Model) noLuckContent() string {
 
 	return strings.Join([]string{
 		sectionTitleStyle.Render(warnStyle.Render("no working config")),
-		mutedStyle.Render("Press q to quit."),
 	}, "\n")
 }
 
 func (m Model) statusLine() string {
-	state := "updating"
-	switch m.state {
-	case StateTesting:
-		state = "testing"
-	case StateRunning:
-		state = "running"
-	case StateNoLuck:
-		state = "no luck"
-	}
+	return fmt.Sprintf("timeout %s   configs %d", m.app.Options.TestTimeout, len(m.app.Configs))
+}
 
-	return fmt.Sprintf("%s | timeout %s | configs %d | q quit | ctrl+c cleanup", state, m.app.Options.TestTimeout, len(m.app.Configs))
+func (m Model) footer() string {
+	return lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		subtleStyle.Render(m.statusLine()),
+		"  ",
+		hint("q", "quit"),
+		" ",
+		hint("ctrl+c", "cleanup"),
+	)
 }
 
 func (m Model) stateBadge() string {
@@ -456,6 +455,10 @@ func sleepContext(ctx context.Context, delay time.Duration) bool {
 
 func keyValue(key, value string) string {
 	return labelStyle.Render(key) + " " + valueStyle.Render(value)
+}
+
+func hint(key, label string) string {
+	return hintStyle.Render(key) + hintTextStyle.Render(" "+label)
 }
 
 func fallback(value, replacement string) string {
@@ -502,9 +505,11 @@ var (
 	spinnerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("39"))
 	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.NormalBorder()).
-			BorderForeground(lipgloss.Color("238")).
-			Padding(1, 2)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("236")).
+			Padding(1, 2).
+			MarginTop(1).
+			MarginBottom(1)
 	sectionTitleStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("252")).
@@ -517,8 +522,15 @@ var (
 			Foreground(lipgloss.Color("252"))
 	mutedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245"))
-	statusStyle = lipgloss.NewStyle().
+	subtleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245"))
+	hintStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("230")).
+			Background(lipgloss.Color("238")).
+			Padding(0, 1)
+	hintTextStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("244"))
 	successStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("42"))
