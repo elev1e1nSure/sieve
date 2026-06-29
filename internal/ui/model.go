@@ -314,6 +314,8 @@ func (m Model) stopRunning() tea.Cmd {
 	return func() tea.Msg {
 		if m.process != nil {
 			_ = m.process.Stop()
+		} else {
+			m.app.Runner.Cleanup()
 		}
 
 		return nil
