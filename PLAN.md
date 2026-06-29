@@ -96,14 +96,14 @@ TUI показывает сообщение что ни один конфиг н
 
 ## Phase 8 — TUI
 
-- [ ] `internal/ui`: bubbletea model
-- [ ] States:
+- [x] `internal/ui`: bubbletea model
+- [x] States:
   - `StateUpdating` — checking/downloading flowseal assets
   - `StateTesting` — iterating configs, show current name + progress (N/20)
   - `StateRunning` — found working config, winws is live, show scrolling log
   - `StateNoLuck` — nothing worked, friendly message
-- [ ] `q` / `ctrl+c` to quit (kills winws if running)
-- [ ] Lipgloss for layout: header, status line, log pane
+- [x] `q` / `ctrl+c` to quit (kills winws if running)
+- [x] Lipgloss for layout: header, status line, log pane
 
 ## Phase 9 — Wire up + polish
 
