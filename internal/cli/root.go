@@ -352,12 +352,6 @@ func appendPathNotice(notices []string, result envpath.Result, err error) []stri
 	}
 }
 
-func printStartupNotices(notices []string) {
-	for _, notice := range notices {
-		fmt.Fprintln(os.Stderr, notice)
-	}
-}
-
 func printSavedRuntime(opts settings.RuntimeOptions) {
 	fmt.Println(keyValue("test-timeout", fmt.Sprintf("%ds", opts.TestTimeout)))
 	fmt.Println(keyValue("cache", boolStatus(!opts.NoCache)))
