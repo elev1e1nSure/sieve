@@ -129,15 +129,15 @@ func (m Model) footer() string {
 func (m Model) stateBadge() string {
 	switch m.state {
 	case StateUpdating:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("39")).Render("updating")
+		return badgeStyle.Copy().Foreground(colorRust).Render("updating")
 	case StateTesting:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("220")).Render("testing")
+		return badgeStyle.Copy().Foreground(colorWarn).Render("testing")
 	case StateRunning:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("42")).Render("running")
+		return badgeStyle.Copy().Foreground(colorSuccess).Render("running")
 	case StateNoLuck:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("196")).Render("stopped")
+		return badgeStyle.Copy().Foreground(colorError).Render("stopped")
 	case StateClosing:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("213")).Render("cleanup")
+		return badgeStyle.Copy().Foreground(colorCleanup).Render("cleanup")
 	default:
 		return badgeStyle.Render("idle")
 	}
@@ -185,61 +185,75 @@ func progressLine(current, total int64) string {
 	return labelStyle.Render("progress") + " " + bar + mutedStyle.Render(fmt.Sprintf(" %d%%", current*100/total))
 }
 
+// Palette mirrors the sieve.dev site: warm dark grays with a rust accent.
+var (
+	colorFg      = lipgloss.Color("#D8D4C8")
+	colorFgDim   = lipgloss.Color("#8A8478")
+	colorFgFaint = lipgloss.Color("#4A4843")
+	colorWire    = lipgloss.Color("#26261F")
+	colorRust    = lipgloss.Color("#8C6B52")
+	colorRustHi  = lipgloss.Color("#B08458")
+	colorSuccess = lipgloss.Color("#8FA878")
+	colorWarn    = lipgloss.Color("#C2A668")
+	colorError   = lipgloss.Color("#B5533C")
+	colorCleanup = lipgloss.Color("#9C7B8C")
+)
+
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("39"))
+			Foreground(colorFg)
 	badgeStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("245"))
+			Foreground(colorFgDim)
 	spinnerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39"))
+			Foreground(colorRust)
 	progressFilledStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("39"))
+				Foreground(colorRust)
 	progressEmptyStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("238"))
+				Foreground(colorWire)
 	panelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("236")).
+			BorderForeground(colorWire).
 			Padding(1, 2).
 			MarginTop(1).
 			MarginBottom(1)
 	sectionTitleStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("252")).
+				Foreground(colorFg).
 				MarginBottom(1)
 	labelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")).
+			Foreground(colorFgDim).
 			Width(10)
 	valueStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("252"))
+			Foreground(colorFg)
 	mutedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
+			Foreground(colorFgFaint)
 	hintStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("230")).
-			Background(lipgloss.Color("238")).
+			Foreground(colorRustHi).
+			Background(colorWire).
 			Padding(0, 1)
 	hintTextStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244"))
+			Foreground(colorFgFaint)
 	successStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("42"))
+			Foreground(colorSuccess)
 	warnStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("220"))
+			Foreground(colorWarn)
 	errorStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("196"))
+			Foreground(colorError)
 	logStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("250"))
+			Foreground(colorFgDim)
 	logKindStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("39"))
+			Foreground(colorRust)
 	logMessageStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252"))
+			Foreground(colorFg)
 	versionStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("245"))
+			Foreground(colorFgFaint)
 )
