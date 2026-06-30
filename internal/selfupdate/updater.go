@@ -229,13 +229,6 @@ func currentVersion() string {
 		return version.Version
 	}
 
-	data, err := os.ReadFile(versionFile())
-	if err == nil {
-		if saved := strings.TrimSpace(string(data)); saved != "" {
-			return saved
-		}
-	}
-
 	return ""
 }
 

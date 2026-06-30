@@ -23,7 +23,7 @@ func replaceCurrentExecutable(exe, replacement string, restart bool) error {
 	if restart {
 		content += fmt.Sprintf("start \"\" %s\r\n", quote(exe))
 	}
-	content += "del /f /q \"%~f0\" > nul\r\n"
+	content += "del /f /q \"%~f0\" > nul & exit /b\r\n"
 
 	if _, err := script.WriteString(content); err != nil {
 		script.Close()

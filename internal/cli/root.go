@@ -136,6 +136,16 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 }
 
 func runApp(ctx context.Context) error {
+	adminService := admin.NewService()
+	if !adminService.IsAdmin() {
+		if err := adminService.ElevateAndRestart(); err != nil {
+			return fmt.Errorf("failed to request admin rights: %w", err)
+		}
+		return nil
+	}
+
+	defer runner.New().Cleanup()
+
 	startupNotices := make([]string, 0, 6)
 
 	if updated, err := autoUpdate(ctx); updated {
@@ -156,15 +166,6 @@ func runApp(ctx context.Context) error {
 	if !runtime.NoAddPath {
 		result, err := envpath.EnsureExecutableDir()
 		startupNotices = appendPathNotice(startupNotices, result, err)
-	}
-
-	adminService := admin.NewService()
-	if !adminService.IsAdmin() {
-		printStartupNotices(startupNotices)
-		if err := adminService.ElevateAndRestart(); err != nil {
-			return fmt.Errorf("failed to request admin rights: %w", err)
-		}
-		return nil
 	}
 
 	cacheStore := cache.NewStore()
@@ -191,7 +192,18 @@ func runApp(ctx context.Context) error {
 	return nil
 }
 
-func autoUpdate(ctx context.Context) (bool, error) {
+func autoUpdate(ctx context.Context) (updated bool, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			updated = false
+			err = fmt.Errorf("update panic: %v", r)
+		}
+	}()
+
+	if !version.IsRelease() {
+		return false, nil
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 
