@@ -87,7 +87,7 @@ Update sieve itself from the latest GitHub release:
 .\sieve.exe --update
 ```
 
-The release must contain a compatible `sieve.exe` asset. Public releases work without extra setup. For private release testing, set `GH_TOKEN` or `GITHUB_TOKEN` before running `--update`. If an update is found during a normal no-flag launch, sieve replaces itself and restarts in the same terminal.
+The release must contain a compatible `sieve.exe` asset. Public releases work without extra setup. For private release testing, set `GH_TOKEN` or `GITHUB_TOKEN` before running `--update`. If an update is found during a normal no-flag launch, sieve replaces itself and restarts.
 
 On startup, sieve adds its executable directory to the current user's `PATH`.
 Skip that behavior when needed:
