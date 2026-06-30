@@ -8,12 +8,12 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/your-name/sieve/internal/assets"
-	"github.com/your-name/sieve/internal/cache"
-	"github.com/your-name/sieve/internal/configs"
-	"github.com/your-name/sieve/internal/runner"
-	"github.com/your-name/sieve/internal/settings"
-	"github.com/your-name/sieve/internal/tester"
+	"github.com/elev1e1nSure/sieve/internal/assets"
+	"github.com/elev1e1nSure/sieve/internal/cache"
+	"github.com/elev1e1nSure/sieve/internal/configs"
+	"github.com/elev1e1nSure/sieve/internal/runner"
+	"github.com/elev1e1nSure/sieve/internal/settings"
+	"github.com/elev1e1nSure/sieve/internal/tester"
 )
 
 const winwsWarmup = 1500 * time.Millisecond

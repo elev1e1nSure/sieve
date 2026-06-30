@@ -31,6 +31,13 @@ just run-timeout 10
 .\sieve.exe --test-timeout 10
 ```
 
+Flags do not start the TUI. They save settings or run one maintenance action, print the result, and exit.
+Start the bypass only by running without flags:
+
+```powershell
+.\sieve.exe
+```
+
 Reset cached config results before running:
 
 ```powershell
@@ -67,6 +74,14 @@ Run maintenance checks:
 .\sieve.exe --diagnostics --fix
 .\sieve.exe --clear-discord-cache
 ```
+
+Update sieve itself from the latest GitHub release:
+
+```powershell
+.\sieve.exe --update
+```
+
+The release must contain a compatible `sieve.exe` asset. If an update is found during a normal no-flag launch, sieve replaces itself and restarts in the same terminal.
 
 On startup, sieve adds its executable directory to the current user's `PATH`.
 Skip that behavior when needed:

@@ -1,6 +1,6 @@
 package main
 
-import "github.com/your-name/sieve/internal/cli"
+import "github.com/elev1e1nSure/sieve/internal/cli"
 
 func main() {
 	cli.Execute()

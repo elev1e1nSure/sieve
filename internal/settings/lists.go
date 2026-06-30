@@ -38,14 +38,6 @@ func ApplyLists(ctx context.Context, listsDir string, opts RuntimeOptions) (List
 		return report, err
 	}
 
-	if opts.UpdateIPSet {
-		count, err := updateIPSet(ctx, filepath.Join(listsDir, "ipset-all.txt"))
-		if err != nil {
-			return report, err
-		}
-		report.add("ipset", fmt.Sprintf("updated from Flowseal service list (%d entries)", count))
-	}
-
 	switch strings.ToLower(strings.TrimSpace(opts.IPSetMode)) {
 	case "":
 	case IPSetLoaded:
@@ -80,6 +72,21 @@ func ApplyLists(ctx context.Context, listsDir string, opts RuntimeOptions) (List
 		report.add("domains", fmt.Sprintf("merged %d explicit domains into list-general-user.txt", count))
 	}
 
+	return report, nil
+}
+
+func UpdateIPSet(ctx context.Context, listsDir string) (ListReport, error) {
+	report := ListReport{}
+	if err := os.MkdirAll(listsDir, 0o755); err != nil {
+		return report, err
+	}
+
+	count, err := updateIPSet(ctx, filepath.Join(listsDir, "ipset-all.txt"))
+	if err != nil {
+		return report, err
+	}
+
+	report.add("ipset", fmt.Sprintf("updated from Flowseal service list (%d entries)", count))
 	return report, nil
 }
 

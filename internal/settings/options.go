@@ -18,14 +18,13 @@ const (
 )
 
 type RuntimeOptions struct {
-	IPSetMode         string
-	UpdateIPSet       bool
-	Domains           []string
-	DomainFiles       []string
-	GameMode          string
-	ClearDiscordCache bool
-	Diagnostics       bool
-	AutoFix           bool
+	TestTimeout int      `json:"test_timeout"`
+	NoCache     bool     `json:"no_cache"`
+	NoAddPath   bool     `json:"no_add_path"`
+	IPSetMode   string   `json:"ipset_mode,omitempty"`
+	Domains     []string `json:"domains,omitempty"`
+	DomainFiles []string `json:"domain_files,omitempty"`
+	GameMode    string   `json:"game_mode"`
 }
 
 type GamePorts struct {
@@ -47,10 +46,20 @@ func (o RuntimeOptions) Game() GamePorts {
 }
 
 func (o RuntimeOptions) HasListChanges() bool {
-	return o.UpdateIPSet ||
-		strings.TrimSpace(o.IPSetMode) != "" ||
+	return strings.TrimSpace(o.IPSetMode) != "" ||
 		len(o.Domains) > 0 ||
 		len(o.DomainFiles) > 0
+}
+
+func (o RuntimeOptions) Normalized() RuntimeOptions {
+	if o.TestTimeout <= 0 {
+		o.TestTimeout = 5
+	}
+	if strings.TrimSpace(o.GameMode) == "" {
+		o.GameMode = GameOff
+	}
+
+	return o
 }
 
 func (o RuntimeOptions) Apply(ctx context.Context, listsDir string) ([]string, error) {

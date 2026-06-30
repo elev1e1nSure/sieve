@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/your-name/sieve/internal/paths"
+	"github.com/elev1e1nSure/sieve/internal/paths"
 )
 
 const (

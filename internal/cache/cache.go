@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/your-name/sieve/internal/configs"
-	"github.com/your-name/sieve/internal/paths"
+	"github.com/elev1e1nSure/sieve/internal/configs"
+	"github.com/elev1e1nSure/sieve/internal/paths"
 )
 
 const cacheFileName = "cache.json"

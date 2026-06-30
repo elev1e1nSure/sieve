@@ -1,4 +1,4 @@
-module github.com/your-name/sieve
+module github.com/elev1e1nSure/sieve
 
 go 1.26.3
 

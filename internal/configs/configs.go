@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/your-name/sieve/internal/settings"
+	"github.com/elev1e1nSure/sieve/internal/settings"
 )
 
 const (

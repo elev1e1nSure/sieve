@@ -7,7 +7,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/your-name/sieve/internal/assets"
+	"github.com/elev1e1nSure/sieve/internal/assets"
 )
 
 func (m Model) ensureAssets() tea.Cmd {
