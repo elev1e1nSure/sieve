@@ -225,14 +225,15 @@ func (r release) compatibleAsset() (releaseAsset, bool) {
 }
 
 func currentVersion() string {
+	if version.IsRelease() {
+		return version.Version
+	}
+
 	data, err := os.ReadFile(versionFile())
 	if err == nil {
 		if saved := strings.TrimSpace(string(data)); saved != "" {
 			return saved
 		}
-	}
-	if version.IsRelease() {
-		return version.Version
 	}
 
 	return ""
