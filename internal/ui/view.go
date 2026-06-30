@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/elev1e1nSure/sieve/internal/version"
 )
 
 func (m Model) View() string {
@@ -12,7 +14,7 @@ func (m Model) View() string {
 		return "Bye!"
 	}
 
-	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render("sieve"), " ", m.stateBadge())
+	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render("sieve"), versionStyle.Render("v"+version.Version), " ", m.stateBadge())
 	panel := panelStyle.Width(m.viewport.Width + 2).Render(m.viewport.View())
 
 	return header + "\n" + panel + "\n" + m.footer()
@@ -237,4 +239,7 @@ var (
 			Foreground(lipgloss.Color("39"))
 	logMessageStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252"))
+	versionStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("245"))
 )
