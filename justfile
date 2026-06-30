@@ -20,7 +20,7 @@ run-timeout seconds:
 
 release-build:
     New-Item -ItemType Directory -Force dist | Out-Null
-    $version = if ($env:VERSION) { $env:VERSION } else { git describe --tags --abbrev=0 }; $commit = git rev-parse --short HEAD; $date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); $env:GOOS='windows'; $env:GOARCH='amd64'; go build -ldflags "-s -w -X github.com/elev1e1nSure/sieve/internal/version.Version=$version -X github.com/elev1e1nSure/sieve/internal/version.Commit=$commit -X github.com/elev1e1nSure/sieve/internal/version.Date=$date" -o dist/sieve.exe .
+    $version = if ($env:VERSION) { $env:VERSION } else { git describe --tags --abbrev=0 }; $commit = git rev-parse --short HEAD; $date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); $env:GOOS='windows'; $env:GOARCH='amd64'; go build -ldflags "-s -w -X github.com/elev1e1nSure/sieve/internal/version.Version=$version -X github.com/elev1e1nSure/sieve/internal/version.Commit=$commit -X github.com/elev1e1nSure/sieve/internal/version.Date=$date" -o dist/sieve-windows-amd64.exe .
 
 clean:
     if (Test-Path sieve.exe) { Remove-Item sieve.exe }

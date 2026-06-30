@@ -95,7 +95,7 @@ type cleanupDoneMsg struct{}
 
 func NewModel(app App) Model {
 	vp := viewport.New(80, 12)
-	vp.SetContent("Starting.")
+	vp.SetContent("warming up the sieve.")
 	spin := spinner.New(
 		spinner.WithSpinner(spinner.Points),
 		spinner.WithStyle(spinnerStyle),

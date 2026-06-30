@@ -1,56 +1,62 @@
 # sieve
 
-sieve is a portable Windows TUI tool that downloads Flowseal zapret assets, tries bundled Discord + YouTube `winws` configs, keeps the first working config running, and remembers successful configs for faster next launches.
+Просеивает конфиги, пока что-то не сработает.
 
-## Requirements
+DPI не идёт на компромиссы — значит, и sieve не идёт. Портативный Windows TUI,
+который тянет ассеты Flowseal zapret, прогоняет по очереди все вшитые
+конфиги `winws` для Discord и YouTube, оставляет работающий и запоминает его
+до следующего запуска.
+
+## Требования
 
 - Windows
-- Administrator rights at runtime
+- Права администратора во время работы
 - Go 1.26+
-- [`just`](https://github.com/casey/just) for local dev commands
+- [`just`](https://github.com/casey/just) для команд локальной разработки
 
-## Usage
+## Использование
 
-Build and run:
+Собрать и запустить:
 
 ```powershell
 just build
 .\sieve.exe
 ```
 
-Run from source:
+Запустить из исходников:
 
 ```powershell
 just run
 ```
 
-Use custom connectivity timeout:
+Указать свой таймаут проверки соединения:
 
 ```powershell
 just run-timeout 10
 .\sieve.exe --test-timeout 10
 ```
 
-Flags do not start the TUI. They save settings or run one maintenance action, print the result, and exit.
-Start the bypass only by running without flags:
+Флаги не запускают TUI. Они либо сохраняют настройки, либо выполняют одно
+обслуживающее действие, печатают результат и завершаются.
+Просеивание начинается только без флагов:
 
 ```powershell
 .\sieve.exe
 ```
 
-Reset cached config results before running:
+Сбросить кэш результатов конфигов перед запуском:
 
 ```powershell
 .\sieve.exe --reset-cache
 ```
 
-Disable config cache for the current run:
+Отключить кэш конфигов для текущего запуска:
 
 ```powershell
 .\sieve.exe --no-cache
 ```
 
-Configure Flowseal lists before running:
+Настроить списки Flowseal перед запуском:
 
 ```powershell
 .\sieve.exe --update-ipset --ipset loaded
@@ -59,7 +65,7 @@ Configure Flowseal lists before running:
 .\sieve.exe --domain discord.media --domain-file .\domains.txt
 ```
 
-Enable game traffic filters:
+Включить фильтры игрового трафика:
 
 ```powershell
 .\sieve.exe --game all
@@ -67,7 +73,7 @@ Enable game traffic filters:
 .\sieve.exe --game udp
 ```
 
-Run maintenance checks:
+Запустить обслуживающие проверки:
 
 ```powershell
 .\sieve.exe --diagnostics
@@ -75,73 +81,79 @@ Run maintenance checks:
 .\sieve.exe --clear-discord-cache
 ```
 
-Show build metadata:
+Показать метаданные сборки:
 
 ```powershell
 .\sieve.exe --version
 ```
 
-Update sieve itself from the latest GitHub release:
+Обновить sieve до последнего релиза на GitHub:
 
 ```powershell
 .\sieve.exe --update
 ```
 
-The release must contain a compatible `sieve.exe` asset. Public releases work without extra setup. For private release testing, set `GH_TOKEN` or `GITHUB_TOKEN` before running `--update`. If an update is found during a normal no-flag launch, sieve replaces itself and restarts.
+В релизе должен быть подходящий бинарник — `sieve-windows-amd64.exe`
+(подойдёт и старое имя `sieve.exe`). Публичные релизы работают без
+дополнительной настройки. Для тестирования приватных релизов задайте
+`GH_TOKEN` или `GITHUB_TOKEN` перед запуском `--update`. Если при обычном
+запуске без флагов находится обновление, sieve тихо заменяет себя и
+перезапускается.
 
-On startup, sieve adds its executable directory to the current user's `PATH`.
-Skip that behavior when needed:
+При старте sieve добавляет папку со своим исполняемым файлом в `PATH`
+текущего пользователя. Пропустить это поведение можно так:
 
 ```powershell
 .\sieve.exe --no-add-path
 ```
 
-Quit with `q` or `Ctrl+C`. sieve kills `winws.exe`, cleans WinDivert service leftovers, and leaves only `Bye!` on exit.
+Выход — `q` или `Ctrl+C`. sieve убивает `winws.exe`, подчищает за собой
+службы WinDivert и тихо сообщает, что просеивание окончено.
 
-## Dev Commands
+## Команды для разработки
 
-List commands:
+Список команд:
 
 ```powershell
 just
 ```
 
-Format:
+Форматирование:
 
 ```powershell
 just fmt
 ```
 
-Test:
+Тесты:
 
 ```powershell
 just test
 ```
 
-Build local exe:
+Локальная сборка:
 
 ```powershell
 just build
 ```
 
-Build release exe:
+Релизная сборка:
 
 ```powershell
 just release-build
 ```
 
-Clean build output:
+Очистить результаты сборки:
 
 ```powershell
 just clean
 ```
 
-## Runtime Data
+## Данные во время работы
 
-sieve stores downloaded Flowseal assets and cache under:
+sieve хранит скачанные ассеты Flowseal и кэш здесь:
 
 ```text
 %APPDATA%\sieve
 ```
 
-Saved CLI settings live in the same directory as `settings.json`.
+Сохранённые настройки CLI лежат там же, в `settings.json`.

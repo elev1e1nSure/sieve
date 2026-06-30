@@ -120,7 +120,7 @@ func (m Model) noLuckContent() string {
 
 	return strings.Join([]string{
 		sectionTitleStyle.Render(warnStyle.Render("no working config")),
-		mutedStyle.Render("every strategy got filtered — try again later or add more configs"),
+		mutedStyle.Render("every strategy got filtered too — try again later, or feed sieve more configs"),
 	}, "\n")
 }
 

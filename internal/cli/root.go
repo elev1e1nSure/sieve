@@ -41,8 +41,11 @@ func Execute() {
 
 	opts := options{}
 	root := &cobra.Command{
-		Use:           "sieve",
-		Short:         "Run zapret configs for Discord and YouTube",
+		Use:   "sieve",
+		Short: "Sifts through configs until something works",
+		Long: "DPI doesn't negotiate, so sieve doesn't either.\n" +
+			"It runs every bundled Discord and YouTube winws config in turn,\n" +
+			"keeps the first one that gets traffic through, and remembers it for next time.",
 		Version:       version.String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -56,7 +59,7 @@ func Execute() {
 	}
 
 	flags := root.Flags()
-	flags.BoolVar(&opts.update, "update", false, "update sieve.exe from the latest GitHub release and exit")
+	flags.BoolVar(&opts.update, "update", false, "update sieve from the latest GitHub release and exit")
 	flags.IntVar(&opts.runtime.TestTimeout, "test-timeout", 0, "save connection test timeout in seconds")
 	flags.BoolVar(&opts.resetCache, "reset-cache", false, "delete cached config results and exit")
 	flags.BoolVar(&opts.runtime.NoCache, "no-cache", false, "save config cache disabled/enabled")
@@ -224,10 +227,10 @@ func runSelfUpdate(ctx context.Context, restart bool) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, selfupdate.ErrNoRelease):
-			fmt.Println(warnStyle.Render("no release found") + " create a GitHub release with sieve.exe first")
+			fmt.Println(warnStyle.Render("no release found") + " create a GitHub release with a sieve binary first")
 			return nil
 		case errors.Is(err, selfupdate.ErrNoAsset):
-			fmt.Println(warnStyle.Render("no compatible asset") + " latest release has no sieve.exe asset")
+			fmt.Println(warnStyle.Render("no compatible asset") + " latest release has no sieve binary attached")
 			return nil
 		case errors.Is(err, selfupdate.ErrGoRun):
 			fmt.Println(warnStyle.Render("update skipped") + " self-update is disabled under go run")

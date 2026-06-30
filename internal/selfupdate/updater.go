@@ -199,9 +199,9 @@ func setAuthHeader(req *http.Request) {
 
 func (r release) compatibleAsset() (releaseAsset, bool) {
 	preferred := []string{
-		"sieve.exe",
 		"sieve-windows-amd64.exe",
 		"sieve_windows_amd64.exe",
+		"sieve.exe",
 	}
 	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
 		return releaseAsset{}, false
