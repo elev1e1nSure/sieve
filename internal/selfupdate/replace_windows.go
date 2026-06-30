@@ -14,7 +14,7 @@ func replaceCurrentExecutable(exe, replacement string, restart bool) error {
 		"ping 127.0.0.1 -n 2 > nul && move /Y " + quote(replacement) + " " + quote(exe) + " > nul",
 	}
 	if restart {
-		args[2] += " && " + quote(exe)
+		args[1] += " && " + quote(exe)
 	}
 
 	cmd := exec.Command("cmd", args...)
