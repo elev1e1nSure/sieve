@@ -31,6 +31,25 @@ just run-timeout 10
 .\sieve.exe --test-timeout 10
 ```
 
+Reset cached config results before running:
+
+```powershell
+.\sieve.exe --reset-cache
+```
+
+Disable config cache for the current run:
+
+```powershell
+.\sieve.exe --no-cache
+```
+
+On startup, sieve adds its executable directory to the current user's `PATH`.
+Skip that behavior when needed:
+
+```powershell
+.\sieve.exe --no-add-path
+```
+
 Quit with `q` or `Ctrl+C`. sieve kills `winws.exe` and cleans WinDivert service leftovers on exit.
 
 ## Dev Commands

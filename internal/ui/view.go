@@ -34,28 +34,34 @@ func (m Model) body() string {
 func (m Model) updatingContent() string {
 	title := sectionTitleStyle.Render(m.spinner.View() + " Updating assets")
 	if m.progress.Total > 0 {
-		return strings.Join([]string{
+		lines := []string{
 			title,
 			keyValue("phase", m.progress.Phase),
 			keyValue("status", m.progress.Message),
 			progressLine(m.progress.Current, m.progress.Total),
-		}, "\n")
+		}
+
+		return strings.Join(m.withStartupNotices(lines), "\n")
 	}
 
-	return strings.Join([]string{
+	lines := []string{
 		title,
 		keyValue("phase", fallback(m.progress.Phase, "starting")),
 		keyValue("status", fallback(m.progress.Message, "preparing local cache")),
-	}, "\n")
+	}
+
+	return strings.Join(m.withStartupNotices(lines), "\n")
 }
 
 func (m Model) testingContent() string {
-	return strings.Join([]string{
+	lines := []string{
 		sectionTitleStyle.Render(m.spinner.View() + " Testing configs"),
 		keyValue("current", fallback(m.currentConfig, "starting")),
 		keyValue("progress", fmt.Sprintf("%d/%d", m.configIndex, m.configTotal)),
 		progressLine(int64(m.configIndex), int64(m.configTotal)),
-	}, "\n")
+	}
+
+	return strings.Join(m.withStartupNotices(lines), "\n")
 }
 
 func (m Model) logContent() string {
@@ -133,6 +139,14 @@ func (m Model) stateBadge() string {
 
 func keyValue(key, value string) string {
 	return labelStyle.Render(key) + " " + valueStyle.Render(value)
+}
+
+func (m Model) withStartupNotices(lines []string) []string {
+	for _, notice := range m.startupNotices {
+		lines = append(lines, keyValue("notice", notice))
+	}
+
+	return lines
 }
 
 func hint(key, label string) string {

@@ -15,8 +15,9 @@ import (
 const cacheFileName = "cache.json"
 
 type Store struct {
-	Path string
-	Data Data
+	Path     string
+	Disabled bool
+	Data     Data
 }
 
 type Data struct {
@@ -41,6 +42,11 @@ func NewStore() Store {
 }
 
 func (s *Store) Load() error {
+	if s.Disabled {
+		s.Data = Data{Configs: map[string]Record{}}
+		return nil
+	}
+
 	data, err := os.ReadFile(s.Path)
 	if errors.Is(err, os.ErrNotExist) {
 		s.ensureData()
@@ -60,7 +66,21 @@ func (s *Store) Load() error {
 	return nil
 }
 
+func (s *Store) Reset() error {
+	s.Data = Data{Configs: map[string]Record{}}
+	err := os.Remove(s.Path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+
+	return err
+}
+
 func (s Store) Save() error {
+	if s.Disabled {
+		return nil
+	}
+
 	if err := os.MkdirAll(filepath.Dir(s.Path), 0o755); err != nil {
 		return err
 	}
@@ -105,6 +125,10 @@ func (s Store) Save() error {
 }
 
 func (s *Store) RecordResult(name string, success bool, at time.Time) error {
+	if s.Disabled {
+		return nil
+	}
+
 	s.ensureData()
 
 	record := s.Data.Configs[name]
@@ -123,6 +147,10 @@ func (s *Store) RecordResult(name string, success bool, at time.Time) error {
 
 func (s Store) SortedConfigs(all []configs.Config) []configs.Config {
 	sorted := append([]configs.Config(nil), all...)
+	if s.Disabled {
+		return sorted
+	}
+
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return s.rank(sorted[i]).Less(s.rank(sorted[j]))
 	})

@@ -28,11 +28,12 @@ const (
 )
 
 type App struct {
-	Assets  assets.Manager
-	Cache   cache.Store
-	Configs []configs.Config
-	Runner  runner.Runner
-	Tester  tester.Tester
+	Assets         assets.Manager
+	Cache          cache.Store
+	Configs        []configs.Config
+	Runner         runner.Runner
+	Tester         tester.Tester
+	StartupNotices []string
 }
 
 type Model struct {
@@ -48,13 +49,14 @@ type Model struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 
-	currentConfig string
-	configIndex   int
-	configTotal   int
-	runningConfig string
-	process       *runner.Process
-	logs          []string
-	rawLogMode    bool
+	currentConfig  string
+	configIndex    int
+	configTotal    int
+	runningConfig  string
+	process        *runner.Process
+	logs           []string
+	rawLogMode     bool
+	startupNotices []string
 }
 
 type assetUpdateMsg struct {
@@ -97,14 +99,15 @@ func NewModel(app App) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return Model{
-		app:         app,
-		state:       StateUpdating,
-		spinner:     spin,
-		viewport:    vp,
-		progressC:   make(chan assetUpdateMsg),
-		ctx:         ctx,
-		cancel:      cancel,
-		configTotal: len(app.Configs),
+		app:            app,
+		state:          StateUpdating,
+		spinner:        spin,
+		viewport:       vp,
+		progressC:      make(chan assetUpdateMsg),
+		ctx:            ctx,
+		cancel:         cancel,
+		configTotal:    len(app.Configs),
+		startupNotices: append([]string(nil), app.StartupNotices...),
 	}
 }
 
