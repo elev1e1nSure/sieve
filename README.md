@@ -7,6 +7,11 @@ DPI не идёт на компромиссы — значит, и sieve не и
 конфиги `winws` для Discord и YouTube, оставляет работающий и запоминает его
 до следующего запуска.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshot.png">
+  <img alt="sieve TUI screenshot" src="assets/screenshot.png" width="1218" style="max-width: 100%; height: auto; aspect-ratio: 1218/714; border-radius: 8px; margin: 24px 0;">
+</picture>
+
 ## Установка
 
 ```powershell
