@@ -143,9 +143,7 @@ func (m Model) footer() string {
 
 	return lipgloss.JoinHorizontal(
 		lipgloss.Center,
-		hint("q", "quit"),
-		sep,
-		hint("ctrl+c", "cleanup"),
+		hint("q/ctrl+c", "quit"),
 		sep,
 		hint("ctrl+o", logMode),
 	)

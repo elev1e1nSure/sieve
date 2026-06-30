@@ -7,12 +7,21 @@ DPI не идёт на компромиссы — значит, и sieve не и
 конфиги `winws` для Discord и YouTube, оставляет работающий и запоминает его
 до следующего запуска.
 
+## Установка
+
+```powershell
+scoop bucket add elev1e1nSure https://github.com/elev1e1nSure/scoop-bucket
+scoop install sieve
+```
+
+Либо взять `sieve-windows-amd64.exe` напрямую из
+[релизов](https://github.com/elev1e1nSure/sieve/releases/latest).
+
 ## Требования
 
 - Windows
 - Права администратора во время работы
-- Go 1.26+
-- [`just`](https://github.com/casey/just) для команд локальной разработки
+- Go 1.26+ и [`just`](https://github.com/casey/just) — только для сборки из исходников
 
 ## Использование
 
