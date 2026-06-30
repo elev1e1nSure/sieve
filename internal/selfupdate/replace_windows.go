@@ -23,7 +23,11 @@ func replaceCurrentExecutable(exe, replacement string, restart bool) error {
 	if restart {
 		content += fmt.Sprintf("start \"\" %s\r\n", quote(exe))
 	}
-	content += "del /f /q \"%~f0\" > nul & exit /b\r\n"
+	// del "%~f0" alone (or chained with "& exit /b") makes cmd.exe print
+	// "The batch file cannot be found." after deleting itself, even though
+	// the script already completed successfully. (goto) 2>nul is the
+	// standard idiom for a clean, silent self-delete.
+	content += "(goto) 2>nul & del \"%~f0\"\r\n"
 
 	if _, err := script.WriteString(content); err != nil {
 		script.Close()
