@@ -43,6 +43,31 @@ Disable config cache for the current run:
 .\sieve.exe --no-cache
 ```
 
+Configure Flowseal lists before running:
+
+```powershell
+.\sieve.exe --update-ipset --ipset loaded
+.\sieve.exe --ipset none
+.\sieve.exe --ipset any
+.\sieve.exe --domain discord.media --domain-file .\domains.txt
+```
+
+Enable game traffic filters:
+
+```powershell
+.\sieve.exe --game all
+.\sieve.exe --game tcp
+.\sieve.exe --game udp
+```
+
+Run maintenance checks:
+
+```powershell
+.\sieve.exe --diagnostics
+.\sieve.exe --diagnostics --fix
+.\sieve.exe --clear-discord-cache
+```
+
 On startup, sieve adds its executable directory to the current user's `PATH`.
 Skip that behavior when needed:
 
@@ -50,7 +75,7 @@ Skip that behavior when needed:
 .\sieve.exe --no-add-path
 ```
 
-Quit with `q` or `Ctrl+C`. sieve kills `winws.exe` and cleans WinDivert service leftovers on exit.
+Quit with `q` or `Ctrl+C`. sieve kills `winws.exe`, cleans WinDivert service leftovers, and leaves only `Bye!` on exit.
 
 ## Dev Commands
 

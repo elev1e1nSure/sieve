@@ -60,6 +60,16 @@ func (m Model) handleAssetUpdate(msg assetUpdateMsg) (Model, tea.Cmd) {
 		m.refreshBody()
 		return m, nil
 	}
+	if report, err := m.app.Settings.Apply(m.ctx, msg.info.ListsDir); err != nil {
+		m.state = StateNoLuck
+		m.err = err
+		m.refreshBody()
+		return m, nil
+	} else {
+		for _, item := range report {
+			m.startupNotices = append(m.startupNotices, item)
+		}
+	}
 
 	m.state = StateTesting
 	m.currentConfig = "starting"
@@ -128,7 +138,7 @@ func (m Model) runFlow(updates chan<- flowUpdateMsg) tea.Cmd {
 				default:
 				}
 
-				process, err := m.app.Runner.Start(winwsPath, config.Resolve(m.assets.BinDir, m.assets.ListsDir))
+				process, err := m.app.Runner.Start(winwsPath, config.ResolveWithOptions(m.assets.BinDir, m.assets.ListsDir, m.app.Settings))
 				updates <- flowUpdateMsg{
 					kind:          flowTesting,
 					currentConfig: config.Name,

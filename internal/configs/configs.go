@@ -3,6 +3,8 @@ package configs
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/your-name/sieve/internal/settings"
 )
 
 const (
@@ -16,10 +18,15 @@ type Config struct {
 }
 
 func (c Config) Resolve(binDir, listsDir string) []string {
+	return c.ResolveWithOptions(binDir, listsDir, settings.RuntimeOptions{})
+}
+
+func (c Config) ResolveWithOptions(binDir, listsDir string, opts settings.RuntimeOptions) []string {
 	args := make([]string, len(c.Args))
 	for i, arg := range c.Args {
 		arg = replacePathPlaceholder(arg, binPlaceholder, binDir)
 		arg = replacePathPlaceholder(arg, listsPlaceholder, listsDir)
+		arg = replaceGamePorts(arg, opts.Game())
 		args[i] = arg
 	}
 	return args
@@ -40,6 +47,29 @@ func replacePathPlaceholder(arg, placeholder, dir string) string {
 	}
 	replacement := filepath.Clean(dir)
 	return strings.ReplaceAll(arg, placeholder, replacement)
+}
+
+func replaceGamePorts(arg string, game settings.GamePorts) string {
+	switch {
+	case arg == "--filter-tcp=12":
+		return "--filter-tcp=" + game.TCP
+	case arg == "--filter-udp=12":
+		return "--filter-udp=" + game.UDP
+	case strings.HasPrefix(arg, "--wf-tcp="):
+		return replaceTrailingPort(arg, game.TCP)
+	case strings.HasPrefix(arg, "--wf-udp="):
+		return replaceTrailingPort(arg, game.UDP)
+	default:
+		return arg
+	}
+}
+
+func replaceTrailingPort(arg, port string) string {
+	if !strings.HasSuffix(arg, ",12") {
+		return arg
+	}
+
+	return strings.TrimSuffix(arg, ",12") + "," + port
 }
 
 var allConfigs = []Config{

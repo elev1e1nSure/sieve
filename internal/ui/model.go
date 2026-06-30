@@ -12,6 +12,7 @@ import (
 	"github.com/your-name/sieve/internal/cache"
 	"github.com/your-name/sieve/internal/configs"
 	"github.com/your-name/sieve/internal/runner"
+	"github.com/your-name/sieve/internal/settings"
 	"github.com/your-name/sieve/internal/tester"
 )
 
@@ -25,6 +26,7 @@ const (
 	StateRunning
 	StateNoLuck
 	StateClosing
+	StateBye
 )
 
 type App struct {
@@ -34,6 +36,7 @@ type App struct {
 	Runner         runner.Runner
 	Tester         tester.Tester
 	StartupNotices []string
+	Settings       settings.RuntimeOptions
 }
 
 type Model struct {
@@ -150,6 +153,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, waitForFlowUpdate(m.flowC)
 	case cleanupDoneMsg:
+		m.state = StateBye
 		return m, tea.Quit
 	}
 

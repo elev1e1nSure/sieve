@@ -8,6 +8,10 @@ import (
 )
 
 func (m Model) View() string {
+	if m.state == StateBye {
+		return "Bye!"
+	}
+
 	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render("sieve"), " ", m.stateBadge())
 	panel := panelStyle.Width(m.viewport.Width + 2).Render(m.viewport.View())
 
