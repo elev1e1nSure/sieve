@@ -73,10 +73,36 @@ func Execute() {
 	flags.BoolVar(&opts.diagnostics, "diagnostics", false, "run Windows diagnostics and exit")
 	flags.BoolVar(&opts.fix, "fix", false, "allow diagnostics to fix known service/TCP timestamp issues")
 
+	applyStyledTemplates(root)
+
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, errorStyle.Render(err.Error()))
+		fmt.Fprintln(os.Stderr, failStyle.Render("✗")+" "+err.Error())
 		os.Exit(1)
 	}
+}
+
+// applyStyledTemplates wires sieve's palette into cobra's --help/--version
+// output, which otherwise renders as plain, uncolored text.
+func applyStyledTemplates(root *cobra.Command) {
+	cobra.AddTemplateFunc("heading", func(s string) string {
+		return titleStyle.Render(s)
+	})
+	cobra.AddTemplateFunc("dim", func(s string) string {
+		return mutedStyle.Render(s)
+	})
+
+	root.SetUsageTemplate(`{{heading "Usage:"}}
+  {{.UseLine}}
+
+{{heading "Flags:"}}
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}
+`)
+
+	root.SetHelpTemplate(`{{.Long}}
+
+{{.UsageString}}`)
+
+	root.SetVersionTemplate(titleStyle.Render(root.Use) + " " + mutedStyle.Render(root.Version) + "\n")
 }
 
 func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) error {
@@ -101,7 +127,7 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 		if err := store.Save(runtime); err != nil {
 			return fmt.Errorf("failed to save settings: %w", err)
 		}
-		fmt.Println(successStyle.Render("settings saved") + " " + mutedStyle.Render(store.Path))
+		fmt.Println(ok("settings saved") + "  " + mutedStyle.Render(store.Path))
 		printSavedRuntime(runtime)
 	}
 
@@ -110,7 +136,7 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 		if err := cacheStore.Reset(); err != nil {
 			return fmt.Errorf("failed to reset cache: %w", err)
 		}
-		fmt.Println(successStyle.Render("cache reset"))
+		fmt.Println(ok("cache reset"))
 	}
 
 	manager := assets.NewManager()
@@ -212,7 +238,7 @@ func autoUpdate(ctx context.Context) (updated bool, err error) {
 
 	result, err := selfupdate.New().Update(ctx, true)
 	if err == nil && result.Updated {
-		fmt.Println(successStyle.Render("updated") + " restarting")
+		fmt.Println(ok("updated") + "  restarting")
 		return true, nil
 	}
 	if errors.Is(err, selfupdate.ErrNoRelease) || errors.Is(err, selfupdate.ErrNoAsset) || errors.Is(err, selfupdate.ErrGoRun) || errors.Is(err, selfupdate.ErrCurrent) {
@@ -227,23 +253,23 @@ func runSelfUpdate(ctx context.Context, restart bool) error {
 	if err != nil {
 		switch {
 		case errors.Is(err, selfupdate.ErrNoRelease):
-			fmt.Println(warnStyle.Render("no release found") + " create a GitHub release with a sieve binary first")
+			fmt.Println(warn("no release found") + "  create a GitHub release with a sieve binary first")
 			return nil
 		case errors.Is(err, selfupdate.ErrNoAsset):
-			fmt.Println(warnStyle.Render("no compatible asset") + " latest release has no sieve binary attached")
+			fmt.Println(warn("no compatible asset") + "  latest release has no sieve binary attached")
 			return nil
 		case errors.Is(err, selfupdate.ErrGoRun):
-			fmt.Println(warnStyle.Render("update skipped") + " self-update is disabled under go run")
+			fmt.Println(warn("update skipped") + "  self-update is disabled under go run")
 			return nil
 		case errors.Is(err, selfupdate.ErrCurrent):
-			fmt.Println(successStyle.Render("already up to date"))
+			fmt.Println(ok("already up to date"))
 			return nil
 		default:
 			return fmt.Errorf("update failed: %w", err)
 		}
 	}
 	if result.Updated {
-		fmt.Println(successStyle.Render("update scheduled") + " " + mutedStyle.Render(result.Version))
+		fmt.Println(ok("update scheduled") + "  " + mutedStyle.Render(result.Version))
 	}
 
 	return nil
@@ -356,44 +382,80 @@ func appendPathNotice(notices []string, result envpath.Result, err error) []stri
 }
 
 func printSavedRuntime(opts settings.RuntimeOptions) {
-	fmt.Println(keyValue("test-timeout", fmt.Sprintf("%ds", opts.TestTimeout)))
-	fmt.Println(keyValue("cache", boolStatus(!opts.NoCache)))
-	fmt.Println(keyValue("PATH auto-add", boolStatus(!opts.NoAddPath)))
-	fmt.Println(keyValue("ipset", fallback(opts.IPSetMode, "unchanged")))
-	fmt.Println(keyValue("game", fallback(opts.GameMode, settings.GameOff)))
+	rows := [][2]string{
+		{"test-timeout", fmt.Sprintf("%ds", opts.TestTimeout)},
+		{"cache", boolStatus(!opts.NoCache)},
+		{"PATH auto-add", boolStatus(!opts.NoAddPath)},
+		{"ipset", fallback(opts.IPSetMode, "unchanged")},
+		{"game", fallback(opts.GameMode, settings.GameOff)},
+	}
 	if len(opts.Domains) > 0 {
-		fmt.Println(keyValue("domains", strings.Join(opts.Domains, ", ")))
+		rows = append(rows, [2]string{"domains", strings.Join(opts.Domains, ", ")})
 	}
 	if len(opts.DomainFiles) > 0 {
-		fmt.Println(keyValue("domain files", strings.Join(opts.DomainFiles, ", ")))
+		rows = append(rows, [2]string{"domain files", strings.Join(opts.DomainFiles, ", ")})
 	}
+	printRows(rows)
 }
 
 func printListReport(title string, report settings.ListReport) {
-	fmt.Println(titleStyle.Render(title))
+	fmt.Println(section(title))
 	for _, item := range report.Items {
-		fmt.Println(successStyle.Render(strings.ToUpper(item.Kind)) + " " + item.Message)
+		fmt.Println(dotStyle.Render("·") + "  " + mutedStyle.Render(item.Kind) + "  " + item.Message)
 	}
 }
 
 func printDiagnostics(title string, report settings.DiagnosticsReport) {
-	fmt.Println(titleStyle.Render(title))
+	fmt.Println(section(title))
+	width := 0
 	for _, item := range report.Items {
-		style := successStyle
-		switch item.Status {
-		case "fail":
-			style = failStyle
-		case "warn":
-			style = warnStyle
-		case "fixed":
-			style = fixedStyle
-		}
-		fmt.Println(style.Render(strings.ToUpper(item.Status)) + " " + nameStyle.Render(item.Name) + " " + item.Message)
+		width = max(width, len(item.Name))
+	}
+	for _, item := range report.Items {
+		glyph, style := diagnosticGlyph(item.Status)
+		name := nameStyle.Render(fmt.Sprintf("%-*s", width, item.Name))
+		fmt.Println(style.Render(glyph) + "  " + name + "  " + mutedStyle.Render(item.Message))
 	}
 }
 
-func keyValue(key, value string) string {
-	return nameStyle.Render(key) + " " + value
+// diagnosticGlyph mirrors the dot/badge language internal/ui already uses
+// for run status, so flag-mode output and the TUI read as the same voice.
+func diagnosticGlyph(status string) (string, lipgloss.Style) {
+	switch status {
+	case "fail":
+		return "✗", failStyle
+	case "warn":
+		return "!", warnStyle
+	case "fixed":
+		return "↻", fixedStyle
+	default:
+		return "✓", successStyle
+	}
+}
+
+// printRows renders aligned key/value pairs with a rust dot marker,
+// matching the "· mm:ss" style internal/ui uses elsewhere.
+func printRows(rows [][2]string) {
+	width := 0
+	for _, row := range rows {
+		width = max(width, len(row[0]))
+	}
+	for _, row := range rows {
+		key := nameStyle.Render(fmt.Sprintf("%-*s", width, row[0]))
+		fmt.Println(dotStyle.Render("·") + "  " + key + "  " + row[1])
+	}
+}
+
+func section(title string) string {
+	return titleStyle.Render(title)
+}
+
+func ok(message string) string {
+	return successStyle.Render("✓") + " " + message
+}
+
+func warn(message string) string {
+	return warnStyle.Render("!") + " " + message
 }
 
 func boolStatus(enabled bool) string {
@@ -412,13 +474,26 @@ func fallback(value, replacement string) string {
 	return value
 }
 
+// Palette mirrors internal/ui's view.go, which mirrors the sieve.dev site:
+// warm dark grays with a rust accent. Kept duplicated rather than exported
+// from internal/ui to avoid coupling the flag-mode CLI to the TUI package.
 var (
-	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-	nameStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("252")).Width(14)
-	successStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42"))
-	fixedStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("45"))
-	warnStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("220"))
-	failStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
-	errorStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("196"))
-	mutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	colorFg      = lipgloss.Color("#D8D4C8")
+	colorFgDim   = lipgloss.Color("#8A8478")
+	colorFgFaint = lipgloss.Color("#4A4843")
+	colorRustHi  = lipgloss.Color("#B08458")
+	colorSuccess = lipgloss.Color("#8FA878")
+	colorWarn    = lipgloss.Color("#C2A668")
+	colorError   = lipgloss.Color("#B5533C")
+)
+
+var (
+	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(colorRustHi)
+	nameStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorFg)
+	dotStyle     = lipgloss.NewStyle().Foreground(colorRustHi)
+	successStyle = lipgloss.NewStyle().Bold(true).Foreground(colorSuccess)
+	fixedStyle   = lipgloss.NewStyle().Bold(true).Foreground(colorRustHi)
+	warnStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorWarn)
+	failStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorError)
+	mutedStyle   = lipgloss.NewStyle().Foreground(colorFgFaint)
 )
