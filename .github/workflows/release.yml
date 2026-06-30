@@ -22,7 +22,12 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        run: go build -o sieve.exe .
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "dev" }
+          $commit = "${{ github.sha }}".Substring(0, 7)
+          $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          go build -ldflags "-s -w -X github.com/elev1e1nSure/sieve/internal/version.Version=$version -X github.com/elev1e1nSure/sieve/internal/version.Commit=$commit -X github.com/elev1e1nSure/sieve/internal/version.Date=$date" -o sieve.exe .
         env:
           GOOS: windows
           GOARCH: amd64

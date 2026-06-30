@@ -23,6 +23,7 @@ import (
 	"github.com/elev1e1nSure/sieve/internal/settings"
 	"github.com/elev1e1nSure/sieve/internal/tester"
 	"github.com/elev1e1nSure/sieve/internal/ui"
+	"github.com/elev1e1nSure/sieve/internal/version"
 )
 
 type options struct {
@@ -42,6 +43,7 @@ func Execute() {
 	root := &cobra.Command{
 		Use:          "sieve",
 		Short:        "Run zapret configs for Discord and YouTube",
+		Version:      version.String(),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if hasChangedFlags(cmd.Flags()) {

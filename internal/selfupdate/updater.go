@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/elev1e1nSure/sieve/internal/paths"
+	"github.com/elev1e1nSure/sieve/internal/version"
 )
 
 const defaultAPIURL = "https://api.github.com/repos/elev1e1nSure/sieve/releases/latest"
@@ -210,11 +211,16 @@ func (r release) compatibleAsset() (releaseAsset, bool) {
 
 func currentVersion() string {
 	data, err := os.ReadFile(versionFile())
-	if err != nil {
-		return ""
+	if err == nil {
+		if saved := strings.TrimSpace(string(data)); saved != "" {
+			return saved
+		}
+	}
+	if version.IsRelease() {
+		return version.Version
 	}
 
-	return strings.TrimSpace(string(data))
+	return ""
 }
 
 func writeCurrentVersion(version string) error {
