@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/your-name/sieve/internal/configs"
+	"github.com/your-name/sieve/internal/paths"
 )
 
 const cacheFileName = "cache.json"
@@ -32,7 +33,7 @@ type Record struct {
 
 func NewStore() Store {
 	return Store{
-		Path: filepath.Join(defaultInstallDir(), cacheFileName),
+		Path: filepath.Join(paths.InstallDir(), cacheFileName),
 		Data: Data{
 			Configs: map[string]Record{},
 		},
@@ -162,13 +163,4 @@ func (r sortRank) Less(other sortRank) bool {
 	}
 
 	return r.at.After(other.at)
-}
-
-func defaultInstallDir() string {
-	configDir, err := os.UserConfigDir()
-	if err != nil || configDir == "" {
-		return filepath.Join(os.TempDir(), "sieve")
-	}
-
-	return filepath.Join(configDir, "sieve")
 }

@@ -7,17 +7,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"runtime"
 	"sync"
 	"time"
 )
 
 const filterClearDelay = 800 * time.Millisecond
-
-var windivertServices = []string{
-	"WinDivert",
-	"WinDivert14",
-}
 
 type Runner struct{}
 
@@ -37,26 +31,18 @@ func New() Runner {
 }
 
 func (r Runner) KillExisting() error {
-	if runtime.GOOS != "windows" {
-		return nil
-	}
-
-	if err := killWinWS(); err != nil {
+	if err := killExistingProcess(); err != nil {
 		return err
 	}
-	cleanupWinDivert()
+	cleanupSystem()
 
 	time.Sleep(filterClearDelay)
 	return nil
 }
 
 func (r Runner) Cleanup() {
-	if runtime.GOOS != "windows" {
-		return
-	}
-
-	_ = killWinWS()
-	cleanupWinDivert()
+	_ = killExistingProcess()
+	cleanupSystem()
 	time.Sleep(filterClearDelay)
 }
 
@@ -102,7 +88,7 @@ func (p *Process) Stop() error {
 	select {
 	case <-p.done:
 		err := p.Wait()
-		cleanupWinDivert()
+		cleanupSystem()
 		time.Sleep(filterClearDelay)
 		return err
 	default:
@@ -119,17 +105,13 @@ func (p *Process) Stop() error {
 	})
 
 	err := p.Wait()
-	cleanupWinDivert()
+	cleanupSystem()
 	time.Sleep(filterClearDelay)
 	if errors.Is(err, context.Canceled) || errors.Is(err, os.ErrProcessDone) || isKilled(err) {
 		return nil
 	}
 
 	return err
-}
-
-func (p *Process) Done() <-chan struct{} {
-	return p.done
 }
 
 func (p *Process) Wait() error {
@@ -168,33 +150,4 @@ func isKilled(err error) bool {
 
 	var exitErr *exec.ExitError
 	return errors.As(err, &exitErr)
-}
-
-func killWinWS() error {
-	cmd := exec.Command("taskkill", "/IM", "winws.exe", "/F", "/T")
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			return nil
-		}
-
-		return err
-	}
-
-	return nil
-}
-
-func cleanupWinDivert() {
-	if runtime.GOOS != "windows" {
-		return
-	}
-
-	for _, service := range windivertServices {
-		runCleanupCommand("sc", "stop", service)
-		runCleanupCommand("sc", "delete", service)
-	}
-}
-
-func runCleanupCommand(name string, args ...string) {
-	_ = exec.Command(name, args...).Run()
 }

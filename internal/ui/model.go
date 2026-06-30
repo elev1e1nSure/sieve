@@ -2,17 +2,12 @@ package ui
 
 import (
 	"context"
-	"fmt"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 
-	"github.com/your-name/sieve/internal/admin"
 	"github.com/your-name/sieve/internal/assets"
 	"github.com/your-name/sieve/internal/cache"
 	"github.com/your-name/sieve/internal/configs"
@@ -32,18 +27,12 @@ const (
 	StateClosing
 )
 
-type Options struct {
-	TestTimeout time.Duration
-}
-
 type App struct {
-	Admin   admin.Service
 	Assets  assets.Manager
 	Cache   cache.Store
 	Configs []configs.Config
 	Runner  runner.Runner
 	Tester  tester.Tester
-	Options Options
 }
 
 type Model struct {
@@ -67,6 +56,36 @@ type Model struct {
 	logs          []string
 	rawLogMode    bool
 }
+
+type assetUpdateMsg struct {
+	progress assets.Progress
+	info     assets.Info
+	err      error
+	done     bool
+}
+
+type flowKind int
+
+const (
+	flowTesting flowKind = iota
+	flowRunning
+	flowNoLuck
+	flowLog
+	flowDone
+)
+
+type flowUpdateMsg struct {
+	kind          flowKind
+	currentConfig string
+	index         int
+	total         int
+	process       *runner.Process
+	log           string
+	err           error
+	done          bool
+}
+
+type cleanupDoneMsg struct{}
 
 func NewModel(app App) Model {
 	vp := viewport.New(80, 12)
@@ -102,14 +121,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cancel()
 			}
 			m.state = StateClosing
-			m.viewport.SetContent(m.body())
+			m.refreshBody()
 			return m, m.stopRunning()
 		case "ctrl+o":
 			m.rawLogMode = !m.rawLogMode
-			m.viewport.SetContent(m.body())
-			if m.state == StateRunning {
-				m.viewport.GotoBottom()
-			}
+			m.refreshBody()
 			return m, nil
 		}
 	case tea.WindowSizeMsg:
@@ -118,10 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
-		m.viewport.SetContent(m.body())
-		if m.state == StateRunning {
-			m.viewport.GotoBottom()
-		}
+		m.refreshBody()
 		return m, cmd
 	case assetUpdateMsg:
 		var cmd tea.Cmd
@@ -137,517 +150,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	m.viewport.SetContent(m.body())
+	m.refreshBody()
 
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
 	return m, cmd
 }
 
-func (m Model) View() string {
-	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render("sieve"), " ", m.stateBadge())
-	footer := m.footer()
-	panel := panelStyle.Width(m.viewport.Width + 2).Render(m.viewport.View())
-
-	return header + "\n" + panel + "\n" + footer
-}
-
-type assetUpdateMsg struct {
-	progress assets.Progress
-	info     assets.Info
-	err      error
-	done     bool
-}
-
-type flowKind int
-
-const (
-	flowTesting flowKind = iota
-	flowRunning
-	flowNoLuck
-	flowLog
-	flowDone
-)
-
-type flowUpdateMsg struct {
-	kind          flowKind
-	currentConfig string
-	index         int
-	total         int
-	process       *runner.Process
-	log           string
-	err           error
-	done          bool
-}
-
-type cleanupDoneMsg struct{}
-
-func (m Model) ensureAssets() tea.Cmd {
-	return func() tea.Msg {
-		go func() {
-			info, err := m.app.Assets.Ensure(m.ctx, func(progress assets.Progress) {
-				m.progressC <- assetUpdateMsg{progress: progress}
-			})
-			m.progressC <- assetUpdateMsg{info: info, err: err, done: true}
-			close(m.progressC)
-		}()
-
-		return nil
-	}
-}
-
-func waitForAssetUpdate(updates <-chan assetUpdateMsg) tea.Cmd {
-	return func() tea.Msg {
-		msg, ok := <-updates
-		if !ok {
-			return assetUpdateMsg{done: true}
-		}
-
-		return msg
-	}
-}
-
-func waitForFlowUpdate(updates <-chan flowUpdateMsg) tea.Cmd {
-	return func() tea.Msg {
-		msg, ok := <-updates
-		if !ok {
-			return flowUpdateMsg{kind: flowDone, done: true}
-		}
-
-		return msg
-	}
-}
-
-func (m Model) handleAssetUpdate(msg assetUpdateMsg) (Model, tea.Cmd) {
-	m.progress = msg.progress
-	m.assets = msg.info
-	m.err = msg.err
-
-	if !msg.done {
-		m.viewport.SetContent(m.body())
-		return m, waitForAssetUpdate(m.progressC)
-	}
-	if msg.err != nil {
-		m.state = StateNoLuck
-		m.viewport.SetContent(m.body())
-		return m, nil
-	}
-
-	m.state = StateTesting
-	m.currentConfig = "starting"
-	m.flowC = make(chan flowUpdateMsg)
-	m.viewport.SetContent(m.body())
-
-	return m, tea.Batch(m.runFlow(m.flowC), waitForFlowUpdate(m.flowC))
-}
-
-func (m Model) handleFlowUpdate(msg flowUpdateMsg) Model {
-	if m.state == StateClosing {
-		return m
-	}
-
-	switch msg.kind {
-	case flowTesting:
-		m.state = StateTesting
-		m.currentConfig = msg.currentConfig
-		m.configIndex = msg.index
-		m.configTotal = msg.total
-		m.process = msg.process
-	case flowRunning:
-		m.state = StateRunning
-		m.runningConfig = msg.currentConfig
-		m.process = msg.process
-		m.logs = nil
-		m.rawLogMode = false
-	case flowNoLuck:
-		m.state = StateNoLuck
-		m.err = msg.err
-		m.process = nil
-	case flowLog:
-		m.logs = append(m.logs, msg.log)
-	case flowDone:
-		m.process = nil
-	}
-
+func (m *Model) refreshBody() {
 	m.viewport.SetContent(m.body())
 	if m.state == StateRunning {
 		m.viewport.GotoBottom()
 	}
-	return m
 }
-
-func (m Model) runFlow(updates chan<- flowUpdateMsg) tea.Cmd {
-	return func() tea.Msg {
-		go func() {
-			defer close(updates)
-
-			store := m.app.Cache
-			if err := store.Load(); err != nil {
-				updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
-				return
-			}
-			if err := m.app.Runner.KillExisting(); err != nil {
-				updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
-				return
-			}
-
-			sorted := store.SortedConfigs(m.app.Configs)
-			total := len(sorted)
-			winwsPath := filepath.Join(m.assets.BinDir, "winws.exe")
-
-			for i, config := range sorted {
-				select {
-				case <-m.ctx.Done():
-					updates <- flowUpdateMsg{kind: flowDone, done: true}
-					return
-				default:
-				}
-
-				process, err := m.app.Runner.Start(winwsPath, config.Resolve(m.assets.BinDir, m.assets.ListsDir))
-				updates <- flowUpdateMsg{
-					kind:          flowTesting,
-					currentConfig: config.Name,
-					index:         i + 1,
-					total:         total,
-					process:       process,
-				}
-				if err != nil {
-					if cacheErr := store.RecordResult(config.Name, false, time.Now()); cacheErr != nil {
-						updates <- flowUpdateMsg{kind: flowNoLuck, err: cacheErr, done: true}
-						return
-					}
-					continue
-				}
-
-				if !sleepContext(m.ctx, winwsWarmup) {
-					_ = process.Stop()
-					updates <- flowUpdateMsg{kind: flowDone, done: true}
-					return
-				}
-
-				result := m.app.Tester.Test(m.ctx)
-				ok := result.Discord && result.YouTube && result.Err == nil
-				if err := store.RecordResult(config.Name, ok, time.Now()); err != nil {
-					_ = process.Stop()
-					updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
-					return
-				}
-				if ok {
-					updates <- flowUpdateMsg{kind: flowRunning, currentConfig: config.Name, process: process}
-					for line := range process.Logs() {
-						updates <- flowUpdateMsg{kind: flowLog, log: line}
-					}
-					return
-				}
-
-				_ = process.Stop()
-			}
-
-			updates <- flowUpdateMsg{kind: flowNoLuck, done: true}
-		}()
-
-		return nil
-	}
-}
-
-func (m Model) stopRunning() tea.Cmd {
-	return func() tea.Msg {
-		if m.process != nil {
-			_ = m.process.Stop()
-		} else {
-			m.app.Runner.Cleanup()
-		}
-
-		return cleanupDoneMsg{}
-	}
-}
-
-func (m Model) body() string {
-	switch m.state {
-	case StateUpdating:
-		return m.updatingContent()
-	case StateTesting:
-		return m.testingContent()
-	case StateRunning:
-		return m.logContent()
-	case StateNoLuck:
-		return m.noLuckContent()
-	case StateClosing:
-		return m.closingContent()
-	default:
-		return ""
-	}
-}
-
-func (m Model) updatingContent() string {
-	title := sectionTitleStyle.Render(m.spinner.View() + " Updating assets")
-	if m.progress.Total > 0 {
-		return strings.Join([]string{
-			title,
-			keyValue("phase", m.progress.Phase),
-			keyValue("status", m.progress.Message),
-			progressLine(m.progress.Current, m.progress.Total),
-		}, "\n")
-	}
-
-	return strings.Join([]string{
-		title,
-		keyValue("phase", fallback(m.progress.Phase, "starting")),
-		keyValue("status", fallback(m.progress.Message, "preparing local cache")),
-	}, "\n")
-}
-
-func (m Model) testingContent() string {
-	return strings.Join([]string{
-		sectionTitleStyle.Render(m.spinner.View() + " Testing configs"),
-		keyValue("current", fallback(m.currentConfig, "starting")),
-		keyValue("progress", fmt.Sprintf("%d/%d", m.configIndex, m.configTotal)),
-		progressLine(int64(m.configIndex), int64(m.configTotal)),
-	}, "\n")
-}
-
-func (m Model) logContent() string {
-	if len(m.logs) == 0 {
-		return strings.Join([]string{
-			sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig)),
-			mutedStyle.Render("waiting for winws output"),
-		}, "\n")
-	}
-	if m.rawLogMode {
-		return strings.Join([]string{
-			sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig) + " " + mutedStyle.Render("raw")),
-			logStyle.Render(strings.Join(tail(m.logs, 200), "\n")),
-		}, "\n")
-	}
-
-	return strings.Join([]string{
-		sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig)),
-		strings.Join(formatFriendlyLogs(tail(m.logs, 200)), "\n"),
-	}, "\n")
-}
-
-func (m Model) noLuckContent() string {
-	if m.err != nil {
-		return strings.Join([]string{
-			sectionTitleStyle.Render(errorStyle.Render("failed")),
-			errorStyle.Render(m.err.Error()),
-		}, "\n")
-	}
-
-	return strings.Join([]string{
-		sectionTitleStyle.Render(warnStyle.Render("no working config")),
-	}, "\n")
-}
-
-func (m Model) closingContent() string {
-	return strings.Join([]string{
-		sectionTitleStyle.Render(m.spinner.View() + " Cleaning up"),
-		cleanLog("winws", "stopping process"),
-		cleanLog("filters", "removing WinDivert services"),
-		cleanLog("exit", "closing session"),
-	}, "\n")
-}
-
-func (m Model) footer() string {
-	logMode := "raw"
-	if m.rawLogMode {
-		logMode = "clean"
-	}
-
-	return lipgloss.JoinHorizontal(
-		lipgloss.Center,
-		hint("q", "quit"),
-		" ",
-		hint("ctrl+c", "cleanup"),
-		" ",
-		hint("ctrl+o", logMode),
-	)
-}
-
-func (m Model) stateBadge() string {
-	switch m.state {
-	case StateUpdating:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("39")).Render("updating")
-	case StateTesting:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("220")).Render("testing")
-	case StateRunning:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("42")).Render("running")
-	case StateNoLuck:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("196")).Render("stopped")
-	case StateClosing:
-		return badgeStyle.Copy().Foreground(lipgloss.Color("213")).Render("cleanup")
-	default:
-		return badgeStyle.Render("idle")
-	}
-}
-
-func sleepContext(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}
-
-func keyValue(key, value string) string {
-	return labelStyle.Render(key) + " " + valueStyle.Render(value)
-}
-
-func hint(key, label string) string {
-	return hintStyle.Render(key) + hintTextStyle.Render(" "+label)
-}
-
-func fallback(value, replacement string) string {
-	if strings.TrimSpace(value) == "" {
-		return replacement
-	}
-
-	return value
-}
-
-func progressLine(current, total int64) string {
-	if total <= 0 {
-		return mutedStyle.Render("progress    waiting")
-	}
-	if current < 0 {
-		current = 0
-	}
-	if current > total {
-		current = total
-	}
-
-	const width = 24
-	filled := int(current * width / total)
-	bar := progressFilledStyle.Render(strings.Repeat("■", filled)) + progressEmptyStyle.Render(strings.Repeat("□", width-filled))
-
-	return labelStyle.Render("progress") + " " + bar + mutedStyle.Render(fmt.Sprintf(" %d%%", current*100/total))
-}
-
-func tail(lines []string, limit int) []string {
-	if len(lines) <= limit {
-		return lines
-	}
-
-	return lines[len(lines)-limit:]
-}
-
-func formatFriendlyLogs(lines []string) []string {
-	events := make([]string, 0, len(lines))
-	seen := map[string]bool{}
-	for _, line := range lines {
-		event, ok := friendlyLogLine(line)
-		if !ok {
-			continue
-		}
-		if seen[event] {
-			continue
-		}
-
-		seen[event] = true
-		events = append(events, event)
-	}
-	if len(events) == 0 {
-		return []string{mutedStyle.Render("waiting for runtime events")}
-	}
-
-	return events
-}
-
-func friendlyLogLine(line string) (string, bool) {
-	trimmed := strings.TrimSpace(line)
-	lower := strings.ToLower(trimmed)
-	switch {
-	case strings.HasPrefix(lower, "github version"):
-		return cleanLog("engine", strings.TrimPrefix(trimmed, "github version ")), true
-	case strings.HasPrefix(lower, "we have "):
-		return cleanLog("profiles", "desync profiles ready"), true
-	case strings.HasPrefix(lower, "loaded ") && strings.Contains(lower, " hosts from "):
-		return cleanLog("hosts", loadedFileSummary(trimmed, " hosts from ")), true
-	case strings.HasPrefix(lower, "loaded ") && strings.Contains(lower, " ip/subnets from "):
-		return cleanLog("ipset", loadedFileSummary(trimmed, " ip/subnets from ")), true
-	case strings.Contains(lower, "windivert initialized"):
-		return cleanLog("capture", "traffic capture started"), true
-	case strings.Contains(lower, "error") || strings.Contains(lower, "failed"):
-		return cleanLogError(trimmed), true
-	default:
-		return "", false
-	}
-}
-
-func loadedFileSummary(line, marker string) string {
-	before, after, ok := strings.Cut(line, marker)
-	if !ok {
-		return line
-	}
-
-	count := strings.TrimPrefix(before, "Loaded ")
-	return filepath.Base(after) + "  " + count
-}
-
-func cleanLog(kind, message string) string {
-	return logKindStyle.Render(kind) + " " + logMessageStyle.Render(message)
-}
-
-func cleanLogError(message string) string {
-	return errorStyle.Render("error") + " " + logMessageStyle.Render(message)
-}
-
-var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("39"))
-	badgeStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("245"))
-	spinnerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("39"))
-	progressFilledStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("39"))
-	progressEmptyStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("238"))
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("236")).
-			Padding(1, 2).
-			MarginTop(1).
-			MarginBottom(1)
-	sectionTitleStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("252")).
-				MarginBottom(1)
-	labelStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244")).
-			Width(10)
-	valueStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("252"))
-	mutedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
-	hintStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("230")).
-			Background(lipgloss.Color("238")).
-			Padding(0, 1)
-	hintTextStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("244"))
-	successStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("42"))
-	warnStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("220"))
-	errorStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("196"))
-	logStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("250"))
-	logKindStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("39"))
-	logMessageStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252"))
-)

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/your-name/sieve/internal/paths"
 )
 
 const (
@@ -41,10 +43,9 @@ type Info struct {
 }
 
 type release struct {
-	TagName   string         `json:"tag_name"`
-	Zipball   string         `json:"zipball_url"`
-	Assets    []releaseAsset `json:"assets"`
-	Published string         `json:"published_at"`
+	TagName string         `json:"tag_name"`
+	Zipball string         `json:"zipball_url"`
+	Assets  []releaseAsset `json:"assets"`
 }
 
 type releaseAsset struct {
@@ -55,7 +56,7 @@ type releaseAsset struct {
 
 func NewManager() Manager {
 	return Manager{
-		InstallDir: defaultInstallDir(),
+		InstallDir: paths.InstallDir(),
 		APIURL:     defaultGitHubAPI,
 		Client: &http.Client{
 			Timeout: 30 * time.Second,
@@ -327,15 +328,6 @@ func binOrListsPath(name string) (string, bool) {
 	}
 
 	return "", false
-}
-
-func defaultInstallDir() string {
-	configDir, err := os.UserConfigDir()
-	if err != nil || configDir == "" {
-		return filepath.Join(os.TempDir(), "sieve")
-	}
-
-	return filepath.Join(configDir, "sieve")
 }
 
 func dirExists(path string) bool {

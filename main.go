@@ -36,15 +36,11 @@ func main() {
 	}
 
 	app := ui.App{
-		Admin:   adminService,
 		Assets:  assets.NewManager(),
 		Cache:   cache.NewStore(),
 		Configs: configs.All(),
 		Runner:  runner.New(),
 		Tester:  tester.New(time.Duration(*testTimeout) * time.Second),
-		Options: ui.Options{
-			TestTimeout: time.Duration(*testTimeout) * time.Second,
-		},
 	}
 
 	program := tea.NewProgram(ui.NewModel(app))
