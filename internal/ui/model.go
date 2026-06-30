@@ -17,6 +17,7 @@ import (
 )
 
 const winwsWarmup = 1500 * time.Millisecond
+const maxLogLines = 2000
 
 type State int
 
@@ -30,37 +31,44 @@ const (
 )
 
 type App struct {
-	Assets         assets.Manager
-	Cache          cache.Store
+	Assets         assets.AssetManager
+	Cache          cache.CacheStore
 	Configs        []configs.Config
-	Runner         runner.Runner
-	Tester         tester.Tester
+	Runner         runner.ProcessRunner
+	Tester         tester.ConnectivityTester
 	StartupNotices []string
 	Settings       settings.RuntimeOptions
 }
 
 type Model struct {
-	app       App
-	state     State
-	spinner   spinner.Model
-	viewport  viewport.Model
-	assets    assets.Info
-	progress  assets.Progress
-	err       error
-	progressC chan assetUpdateMsg
-	flowC     chan flowUpdateMsg
-	ctx       context.Context
-	cancel    context.CancelFunc
+	app    App
+	ui     uiState
+	flow   flowState
+	ctx    context.Context
+	cancel context.CancelFunc
+}
 
-	currentConfig  string
-	configIndex    int
-	configTotal    int
-	runningConfig  string
-	runStartedAt   time.Time
-	process        *runner.Process
-	logs           []string
+type uiState struct {
+	state          State
+	spinner        spinner.Model
+	viewport       viewport.Model
 	rawLogMode     bool
 	startupNotices []string
+}
+
+type flowState struct {
+	assets        assets.Info
+	progress      assets.Progress
+	err           error
+	progressC     chan assetUpdateMsg
+	flowC         chan flowUpdateMsg
+	currentConfig string
+	configIndex   int
+	configTotal   int
+	runningConfig string
+	runStartedAt  time.Time
+	process       *runner.Process
+	logs          []string
 }
 
 type assetUpdateMsg struct {
@@ -103,20 +111,24 @@ func NewModel(app App) Model {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return Model{
-		app:            app,
-		state:          StateUpdating,
-		spinner:        spin,
-		viewport:       vp,
-		progressC:      make(chan assetUpdateMsg),
-		ctx:            ctx,
-		cancel:         cancel,
-		configTotal:    len(app.Configs),
-		startupNotices: append([]string(nil), app.StartupNotices...),
+		app:    app,
+		ctx:    ctx,
+		cancel: cancel,
+		ui: uiState{
+			state:          StateUpdating,
+			spinner:        spin,
+			viewport:       vp,
+			startupNotices: append([]string(nil), app.StartupNotices...),
+		},
+		flow: flowState{
+			progressC:   make(chan assetUpdateMsg),
+			configTotal: len(app.Configs),
+		},
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.ensureAssets(), waitForAssetUpdate(m.progressC), m.spinner.Tick)
+	return tea.Batch(m.ensureAssets(), waitForAssetUpdate(m.flow.progressC), m.ui.spinner.Tick)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -127,20 +139,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cancel != nil {
 				m.cancel()
 			}
-			m.state = StateClosing
+			m.ui.state = StateClosing
 			m.refreshBody()
 			return m, m.stopRunning()
 		case "ctrl+o":
-			m.rawLogMode = !m.rawLogMode
+			m.ui.rawLogMode = !m.ui.rawLogMode
 			m.refreshBody()
 			return m, nil
 		}
 	case tea.WindowSizeMsg:
-		m.viewport.Width = max(1, msg.Width-4)
-		m.viewport.Height = max(1, msg.Height-7)
+		m.ui.viewport.Width = max(1, msg.Width-4)
+		m.ui.viewport.Height = max(1, msg.Height-7)
 	case spinner.TickMsg:
 		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
+		m.ui.spinner, cmd = m.ui.spinner.Update(msg)
 		m.refreshBody()
 		return m, cmd
 	case assetUpdateMsg:
@@ -152,22 +164,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.done {
 			return m, nil
 		}
-		return m, waitForFlowUpdate(m.flowC)
+		return m, waitForFlowUpdate(m.flow.flowC)
 	case cleanupDoneMsg:
-		m.state = StateBye
+		m.ui.state = StateBye
 		return m, tea.Quit
 	}
 
 	m.refreshBody()
 
 	var cmd tea.Cmd
-	m.viewport, cmd = m.viewport.Update(msg)
+	m.ui.viewport, cmd = m.ui.viewport.Update(msg)
 	return m, cmd
 }
 
 func (m *Model) refreshBody() {
-	m.viewport.SetContent(m.body())
-	if m.state == StateRunning {
-		m.viewport.GotoBottom()
+	m.ui.viewport.SetContent(m.body())
+	if m.ui.state == StateRunning {
+		m.ui.viewport.GotoBottom()
 	}
 }

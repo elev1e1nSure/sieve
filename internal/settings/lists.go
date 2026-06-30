@@ -279,7 +279,19 @@ func splitDomains(value string) []string {
 }
 
 func readDomainFile(path string) ([]string, error) {
-	file, err := os.Open(path)
+	resolved, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return nil, err
+	}
+	if strings.Contains(resolved, "..") {
+		return nil, fmt.Errorf("domain file path must not contain ..: %s", path)
+	}
+	home, _ := os.UserHomeDir()
+	if home != "" && !strings.HasPrefix(strings.ToLower(resolved), strings.ToLower(home)+string(os.PathSeparator)) {
+		return nil, fmt.Errorf("domain file must be inside user home directory: %s", path)
+	}
+
+	file, err := os.Open(resolved)
 	if err != nil {
 		return nil, err
 	}

@@ -27,6 +27,12 @@ type Manager struct {
 	Client     *http.Client
 }
 
+type AssetManager interface {
+	Ensure(ctx context.Context, progress func(Progress)) (Info, error)
+	BinDir() string
+	ListsDir() string
+}
+
 type Progress struct {
 	Phase   string
 	Message string
@@ -319,7 +325,7 @@ func binOrListsPath(name string) (string, bool) {
 
 		relParts := parts[i:]
 		for _, relPart := range relParts {
-			if relPart == "" || relPart == "." || relPart == ".." {
+			if relPart == "" || relPart == "." || relPart == ".." || strings.ContainsAny(relPart, `:\`) {
 				return "", false
 			}
 		}

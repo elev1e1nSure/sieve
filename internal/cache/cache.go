@@ -20,6 +20,14 @@ type Store struct {
 	Data     Data
 }
 
+type CacheStore interface {
+	Load() error
+	Save() error
+	Reset() error
+	RecordResult(name string, success bool, at time.Time) error
+	SortedConfigs(all []configs.Config) []configs.Config
+}
+
 type Data struct {
 	LastWorking string            `json:"last_working,omitempty"`
 	Configs     map[string]Record `json:"configs,omitempty"`

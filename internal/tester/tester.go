@@ -19,6 +19,10 @@ type Tester struct {
 	Client  *http.Client
 }
 
+type ConnectivityTester interface {
+	Test(ctx context.Context) TestResult
+}
+
 type TestResult struct {
 	Discord bool
 	YouTube bool

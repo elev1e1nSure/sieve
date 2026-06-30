@@ -205,7 +205,7 @@ func runApp(ctx context.Context) error {
 
 	app := ui.App{
 		Assets:         assets.NewManager(),
-		Cache:          cacheStore,
+		Cache:          &cacheStore,
 		Configs:        configs.All(),
 		Runner:         runner.New(),
 		Tester:         tester.New(time.Duration(runtime.TestTimeout) * time.Second),

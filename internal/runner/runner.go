@@ -15,11 +15,19 @@ const filterClearDelay = 800 * time.Millisecond
 
 type Runner struct{}
 
+type ProcessRunner interface {
+	KillExisting() error
+	Cleanup()
+	Start(winwsPath string, args []string) (*Process, error)
+}
+
 type Process struct {
 	cmd     *exec.Cmd
 	cancel  context.CancelFunc
 	logs    chan string
 	done    chan struct{}
+	stopCh  chan struct{}
+	scansWg sync.WaitGroup
 	once    sync.Once
 	mu      sync.Mutex
 	waitErr error
@@ -66,6 +74,7 @@ func (r Runner) Start(winwsPath string, args []string) (*Process, error) {
 		cancel: cancel,
 		logs:   make(chan string, 256),
 		done:   make(chan struct{}),
+		stopCh: make(chan struct{}),
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -73,6 +82,7 @@ func (r Runner) Start(winwsPath string, args []string) (*Process, error) {
 		return nil, err
 	}
 
+	process.scansWg.Add(2)
 	go process.scan(stdout)
 	go process.scan(stderr)
 	go process.wait()
@@ -95,6 +105,7 @@ func (p *Process) Stop() error {
 	}
 
 	p.once.Do(func() {
+		close(p.stopCh)
 		p.mu.Lock()
 		p.stopped = true
 		p.mu.Unlock()
@@ -124,9 +135,14 @@ func (p *Process) Wait() error {
 }
 
 func (p *Process) scan(reader io.Reader) {
+	defer p.scansWg.Done()
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
-		p.logs <- scanner.Text()
+		select {
+		case p.logs <- scanner.Text():
+		case <-p.stopCh:
+			return
+		}
 	}
 }
 
@@ -140,6 +156,7 @@ func (p *Process) wait() {
 	p.mu.Unlock()
 
 	close(p.done)
+	p.scansWg.Wait()
 	close(p.logs)
 }
 

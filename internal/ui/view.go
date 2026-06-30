@@ -11,7 +11,7 @@ import (
 )
 
 func (m Model) View() string {
-	if m.state == StateBye {
+	if m.ui.state == StateBye {
 		return "\n  " + byeStyle.Render("done sifting.") + "\n"
 	}
 
@@ -23,13 +23,13 @@ func (m Model) View() string {
 		" ",
 		m.stateBadge(),
 	)
-	panel := panelStyle.Width(m.viewport.Width + 2).Render(m.viewport.View())
+	panel := panelStyle.Width(m.ui.viewport.Width + 2).Render(m.ui.viewport.View())
 
 	return header + "\n" + panel + "\n" + m.footer()
 }
 
 func (m Model) body() string {
-	switch m.state {
+	switch m.ui.state {
 	case StateUpdating:
 		return m.updatingContent()
 	case StateTesting:
@@ -46,13 +46,13 @@ func (m Model) body() string {
 }
 
 func (m Model) updatingContent() string {
-	title := sectionTitleStyle.Render(m.spinner.View() + " Updating assets")
-	if m.progress.Total > 0 {
+	title := sectionTitleStyle.Render(m.ui.spinner.View() + " Updating assets")
+	if m.flow.progress.Total > 0 {
 		lines := []string{
 			title,
-			keyValue("phase", m.progress.Phase),
-			keyValue("status", m.progress.Message),
-			progressLine(m.progress.Current, m.progress.Total),
+			keyValue("phase", m.flow.progress.Phase),
+			keyValue("status", m.flow.progress.Message),
+			progressLine(m.flow.progress.Current, m.flow.progress.Total),
 		}
 
 		return strings.Join(m.withStartupNotices(lines), "\n")
@@ -60,8 +60,8 @@ func (m Model) updatingContent() string {
 
 	lines := []string{
 		title,
-		keyValue("phase", fallback(m.progress.Phase, "starting")),
-		keyValue("status", fallback(m.progress.Message, "preparing local cache")),
+		keyValue("phase", fallback(m.flow.progress.Phase, "starting")),
+		keyValue("status", fallback(m.flow.progress.Message, "preparing local cache")),
 	}
 
 	return strings.Join(m.withStartupNotices(lines), "\n")
@@ -69,52 +69,52 @@ func (m Model) updatingContent() string {
 
 func (m Model) testingContent() string {
 	lines := []string{
-		sectionTitleStyle.Render(m.spinner.View() + " Testing configs"),
-		keyValue("current", fallback(m.currentConfig, "starting")),
-		keyValue("progress", fmt.Sprintf("%d/%d", m.configIndex, m.configTotal)),
-		progressLine(int64(m.configIndex), int64(m.configTotal)),
+		sectionTitleStyle.Render(m.ui.spinner.View() + " Testing configs"),
+		keyValue("current", fallback(m.flow.currentConfig, "starting")),
+		keyValue("progress", fmt.Sprintf("%d/%d", m.flow.configIndex, m.flow.configTotal)),
+		progressLine(int64(m.flow.configIndex), int64(m.flow.configTotal)),
 	}
 
 	return strings.Join(m.withStartupNotices(lines), "\n")
 }
 
 func (m Model) logContent() string {
-	header := successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig) + " " + mutedStyle.Render(m.uptime())
+	header := successStyle.Render("running") + " " + valueStyle.Render(m.flow.runningConfig) + " " + mutedStyle.Render(m.uptime())
 
-	if len(m.logs) == 0 {
+	if len(m.flow.logs) == 0 {
 		return strings.Join([]string{
 			sectionTitleStyle.Render(header),
 			mutedStyle.Render("waiting for winws output"),
 		}, "\n")
 	}
-	if m.rawLogMode {
+	if m.ui.rawLogMode {
 		return strings.Join([]string{
 			sectionTitleStyle.Render(header + " " + mutedStyle.Render("raw")),
-			logStyle.Render(strings.Join(tail(m.logs, 200), "\n")),
+			logStyle.Render(strings.Join(tail(m.flow.logs, 200), "\n")),
 		}, "\n")
 	}
 
 	return strings.Join([]string{
 		sectionTitleStyle.Render(header),
-		strings.Join(formatFriendlyLogs(tail(m.logs, 200)), "\n"),
+		strings.Join(formatFriendlyLogs(tail(m.flow.logs, 200)), "\n"),
 	}, "\n")
 }
 
 func (m Model) uptime() string {
-	if m.runStartedAt.IsZero() {
+	if m.flow.runStartedAt.IsZero() {
 		return ""
 	}
 
-	d := time.Since(m.runStartedAt)
+	d := time.Since(m.flow.runStartedAt)
 
 	return fmt.Sprintf("· %02d:%02d", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 func (m Model) noLuckContent() string {
-	if m.err != nil {
+	if m.flow.err != nil {
 		return strings.Join([]string{
 			sectionTitleStyle.Render(errorStyle.Render("failed")),
-			errorStyle.Render(m.err.Error()),
+			errorStyle.Render(m.flow.err.Error()),
 		}, "\n")
 	}
 
@@ -126,7 +126,7 @@ func (m Model) noLuckContent() string {
 
 func (m Model) closingContent() string {
 	return strings.Join([]string{
-		sectionTitleStyle.Render(m.spinner.View() + " Cleaning up"),
+		sectionTitleStyle.Render(m.ui.spinner.View() + " Cleaning up"),
 		cleanLog("winws", "stopping process"),
 		cleanLog("filters", "removing WinDivert services"),
 		cleanLog("exit", "closing session"),
@@ -135,7 +135,7 @@ func (m Model) closingContent() string {
 
 func (m Model) footer() string {
 	logMode := "raw"
-	if m.rawLogMode {
+	if m.ui.rawLogMode {
 		logMode = "clean"
 	}
 
@@ -150,7 +150,7 @@ func (m Model) footer() string {
 }
 
 func (m Model) stateBadge() string {
-	switch m.state {
+	switch m.ui.state {
 	case StateUpdating:
 		return badgeStyle.Copy().Foreground(colorRust).Render("updating")
 	case StateTesting:
@@ -171,7 +171,7 @@ func keyValue(key, value string) string {
 }
 
 func (m Model) withStartupNotices(lines []string) []string {
-	for _, notice := range m.startupNotices {
+	for _, notice := range m.ui.startupNotices {
 		lines = append(lines, keyValue("notice", notice))
 	}
 

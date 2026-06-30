@@ -47,5 +47,30 @@ func (s Store) Save(opts RuntimeOptions) error {
 	}
 	payload = append(payload, '\n')
 
-	return os.WriteFile(s.Path, payload, 0o644)
+	tmp, err := os.CreateTemp(filepath.Dir(s.Path), ".settings-*.json")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(payload); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+
+	if err := os.Remove(s.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		os.Remove(tmpName)
+		return err
+	}
+	if err := os.Rename(tmpName, s.Path); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+
+	return nil
 }

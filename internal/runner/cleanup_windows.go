@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os/exec"
 	"time"
+
+	"github.com/elev1e1nSure/sieve/internal/paths"
 )
 
 var windivertServices = []string{
@@ -16,7 +18,7 @@ var windivertServices = []string{
 }
 
 func killExistingProcess() error {
-	cmd := exec.Command("taskkill", "/IM", "winws.exe", "/F", "/T")
+	cmd := paths.SystemCommand("taskkill", "/IM", "winws.exe", "/F", "/T")
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if !errors.As(err, &exitErr) {
@@ -43,5 +45,5 @@ func cleanupSystem() {
 }
 
 func runCleanupCommand(name string, args ...string) {
-	_ = exec.Command(name, args...).Run()
+	_ = paths.SystemCommand(name, args...).Run()
 }

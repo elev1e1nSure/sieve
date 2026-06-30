@@ -5,7 +5,7 @@ package admin
 import "errors"
 
 func isAdmin() bool {
-	return true
+	return false
 }
 
 func elevateAndRestart() error {

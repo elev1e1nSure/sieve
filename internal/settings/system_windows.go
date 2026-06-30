@@ -6,10 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/elev1e1nSure/sieve/internal/paths"
 )
 
 type DiagnosticsReport struct {
@@ -126,7 +127,7 @@ func okIf(ok bool, name, okMessage, badMessage string) DiagnosticItem {
 }
 
 func serviceRunning(name string) bool {
-	out, err := exec.Command("sc", "query", name).CombinedOutput()
+	out, err := paths.SystemCommand("sc", "query", name).CombinedOutput()
 	return err == nil && strings.Contains(strings.ToUpper(string(out)), "RUNNING")
 }
 
@@ -135,7 +136,7 @@ func serviceNameContains(needle string) bool {
 }
 
 func matchingServiceNames(needle string) []string {
-	out, err := exec.Command("sc", "query").CombinedOutput()
+	out, err := paths.SystemCommand("sc", "query").CombinedOutput()
 	if err != nil {
 		return nil
 	}
@@ -154,17 +155,17 @@ func matchingServiceNames(needle string) []string {
 }
 
 func processRunning(image string) bool {
-	out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq "+image).CombinedOutput()
+	out, err := paths.SystemCommand("tasklist", "/FI", "IMAGENAME eq "+image).CombinedOutput()
 	return err == nil && strings.Contains(strings.ToLower(string(out)), strings.ToLower(image))
 }
 
 func systemProxyEnabled() bool {
-	out, err := exec.Command("reg", "query", `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`, "/v", "ProxyEnable").CombinedOutput()
+	out, err := paths.SystemCommand("reg", "query", `HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings`, "/v", "ProxyEnable").CombinedOutput()
 	return err == nil && strings.Contains(string(out), "0x1")
 }
 
 func tcpTimestampsEnabled() bool {
-	out, err := exec.Command("netsh", "interface", "tcp", "show", "global").CombinedOutput()
+	out, err := paths.SystemCommand("netsh", "interface", "tcp", "show", "global").CombinedOutput()
 	lower := strings.ToLower(string(out))
 	return err == nil && strings.Contains(lower, "timestamps") && strings.Contains(lower, "enabled")
 }
@@ -186,17 +187,13 @@ func checkpointFound() bool {
 }
 
 func secureDNSConfigured() bool {
-	cmd := exec.Command("powershell", "-NoProfile", "-Command", `(Get-ChildItem -Recurse -Path 'HKLM:System\CurrentControlSet\Services\Dnscache\InterfaceSpecificParameters\' -ErrorAction SilentlyContinue | Get-ItemProperty | Where-Object { $_.DohFlags -gt 0 } | Measure-Object).Count`)
+	cmd := paths.SystemCommand("powershell.exe", "-NoProfile", "-Command", `(Get-ChildItem -Recurse -Path 'HKLM:System\CurrentControlSet\Services\Dnscache\InterfaceSpecificParameters\' -ErrorAction SilentlyContinue | Get-ItemProperty | Where-Object { $_.DohFlags -gt 0 } | Measure-Object).Count`)
 	out, err := cmd.CombinedOutput()
 	return err == nil && strings.TrimSpace(string(out)) != "0" && strings.TrimSpace(string(out)) != ""
 }
 
 func hostsContainsYouTube() bool {
-	root := os.Getenv("SystemRoot")
-	if root == "" {
-		root = `C:\Windows`
-	}
-	data, err := os.ReadFile(filepath.Join(root, "System32", "drivers", "etc", "hosts"))
+	data, err := os.ReadFile(filepath.Join(paths.SystemRoot(), "System32", "drivers", "etc", "hosts"))
 	if err != nil {
 		return false
 	}
@@ -228,7 +225,7 @@ func reportConflictingServices(report *DiagnosticsReport, autoFix bool) {
 	conflicts := []string{"GoodbyeDPI", "discordfix_zapret", "winws1", "winws2"}
 	var found []string
 	for _, name := range conflicts {
-		if _, err := exec.Command("sc", "query", name).CombinedOutput(); err == nil {
+		if _, err := paths.SystemCommand("sc", "query", name).CombinedOutput(); err == nil {
 			found = append(found, name)
 		}
 	}
@@ -256,7 +253,7 @@ func reportConflictingServices(report *DiagnosticsReport, autoFix bool) {
 }
 
 func run(name string, args ...string) error {
-	out, err := exec.Command(name, args...).CombinedOutput()
+	out, err := paths.SystemCommand(name, args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
