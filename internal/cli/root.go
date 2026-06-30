@@ -36,6 +36,8 @@ type options struct {
 }
 
 func Execute() {
+	cobra.MousetrapHelpText = ""
+
 	opts := options{}
 	root := &cobra.Command{
 		Use:          "sieve",
