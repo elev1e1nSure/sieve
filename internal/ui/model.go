@@ -56,6 +56,7 @@ type Model struct {
 	configIndex    int
 	configTotal    int
 	runningConfig  string
+	runStartedAt   time.Time
 	process        *runner.Process
 	logs           []string
 	rawLogMode     bool
@@ -96,7 +97,7 @@ func NewModel(app App) Model {
 	vp := viewport.New(80, 12)
 	vp.SetContent("Starting.")
 	spin := spinner.New(
-		spinner.WithSpinner(spinner.Dot),
+		spinner.WithSpinner(spinner.Points),
 		spinner.WithStyle(spinnerStyle),
 	)
 	ctx, cancel := context.WithCancel(context.Background())

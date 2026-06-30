@@ -94,6 +94,7 @@ func (m Model) handleFlowUpdate(msg flowUpdateMsg) Model {
 	case flowRunning:
 		m.state = StateRunning
 		m.runningConfig = msg.currentConfig
+		m.runStartedAt = time.Now()
 		m.process = msg.process
 		m.logs = nil
 		m.rawLogMode = false

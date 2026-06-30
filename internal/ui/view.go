@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -11,10 +12,17 @@ import (
 
 func (m Model) View() string {
 	if m.state == StateBye {
-		return "Bye!"
+		return "\n  " + byeStyle.Render("done sifting.") + "\n"
 	}
 
-	header := lipgloss.JoinHorizontal(lipgloss.Center, titleStyle.Render("sieve"), versionStyle.Render("v"+version.Version), " ", m.stateBadge())
+	header := lipgloss.JoinHorizontal(
+		lipgloss.Center,
+		dotStyle.Render("●")+" "+titleStyle.Render("sieve"),
+		" ",
+		versionStyle.Render("v"+version.Version),
+		" ",
+		m.stateBadge(),
+	)
 	panel := panelStyle.Width(m.viewport.Width + 2).Render(m.viewport.View())
 
 	return header + "\n" + panel + "\n" + m.footer()
@@ -71,23 +79,35 @@ func (m Model) testingContent() string {
 }
 
 func (m Model) logContent() string {
+	header := successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig) + " " + mutedStyle.Render(m.uptime())
+
 	if len(m.logs) == 0 {
 		return strings.Join([]string{
-			sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig)),
+			sectionTitleStyle.Render(header),
 			mutedStyle.Render("waiting for winws output"),
 		}, "\n")
 	}
 	if m.rawLogMode {
 		return strings.Join([]string{
-			sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig) + " " + mutedStyle.Render("raw")),
+			sectionTitleStyle.Render(header + " " + mutedStyle.Render("raw")),
 			logStyle.Render(strings.Join(tail(m.logs, 200), "\n")),
 		}, "\n")
 	}
 
 	return strings.Join([]string{
-		sectionTitleStyle.Render(successStyle.Render("running") + " " + valueStyle.Render(m.runningConfig)),
+		sectionTitleStyle.Render(header),
 		strings.Join(formatFriendlyLogs(tail(m.logs, 200)), "\n"),
 	}, "\n")
+}
+
+func (m Model) uptime() string {
+	if m.runStartedAt.IsZero() {
+		return ""
+	}
+
+	d := time.Since(m.runStartedAt)
+
+	return fmt.Sprintf("· %02d:%02d", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 func (m Model) noLuckContent() string {
@@ -98,7 +118,10 @@ func (m Model) noLuckContent() string {
 		}, "\n")
 	}
 
-	return sectionTitleStyle.Render(warnStyle.Render("no working config"))
+	return strings.Join([]string{
+		sectionTitleStyle.Render(warnStyle.Render("no working config")),
+		mutedStyle.Render("every strategy got filtered — try again later or add more configs"),
+	}, "\n")
 }
 
 func (m Model) closingContent() string {
@@ -116,12 +139,14 @@ func (m Model) footer() string {
 		logMode = "clean"
 	}
 
+	sep := mutedStyle.Render(" · ")
+
 	return lipgloss.JoinHorizontal(
 		lipgloss.Center,
 		hint("q", "quit"),
-		" ",
+		sep,
 		hint("ctrl+c", "cleanup"),
-		" ",
+		sep,
 		hint("ctrl+o", logMode),
 	)
 }
@@ -167,9 +192,13 @@ func fallback(value, replacement string) string {
 	return value
 }
 
+// eighthBlocks holds the partial-fill glyphs for 1/8 to 7/8 of a cell;
+// index 0 is unused (no partial fill).
+var eighthBlocks = []rune{0, '▏', '▎', '▍', '▌', '▋', '▊', '▉'}
+
 func progressLine(current, total int64) string {
 	if total <= 0 {
-		return mutedStyle.Render("progress    waiting")
+		return labelStyle.Render("progress") + " " + mutedStyle.Render("waiting")
 	}
 	if current < 0 {
 		current = 0
@@ -179,10 +208,31 @@ func progressLine(current, total int64) string {
 	}
 
 	const width = 24
-	filled := int(current * width / total)
-	bar := progressFilledStyle.Render(strings.Repeat("■", filled)) + progressEmptyStyle.Render(strings.Repeat("□", width-filled))
+	eighths := int(current * int64(width*8) / total)
+	full, partial := eighths/8, eighths%8
 
-	return labelStyle.Render("progress") + " " + bar + mutedStyle.Render(fmt.Sprintf(" %d%%", current*100/total))
+	filled := strings.Repeat("█", full)
+	if partial > 0 && full < width {
+		filled += string(eighthBlocks[partial])
+		full++
+	}
+
+	bar := progressComet(filled) + progressEmptyStyle.Render(strings.Repeat("░", width-full))
+
+	return labelStyle.Render("progress") + " " + bar + mutedStyle.Render(fmt.Sprintf(" %3d%%", current*100/total))
+}
+
+// progressComet renders the filled portion of the bar with a brighter
+// leading edge, like a comet head, to read as motion rather than a static fill.
+func progressComet(filled string) string {
+	if filled == "" {
+		return ""
+	}
+
+	runes := []rune(filled)
+	body, head := string(runes[:len(runes)-1]), string(runes[len(runes)-1])
+
+	return progressFilledStyle.Render(body) + progressCometStyle.Render(head)
 }
 
 // Palette mirrors the sieve.dev site: warm dark grays with a rust accent.
@@ -210,8 +260,16 @@ var (
 			Foreground(colorRust)
 	progressFilledStyle = lipgloss.NewStyle().
 				Foreground(colorRust)
+	progressCometStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(colorRustHi)
 	progressEmptyStyle = lipgloss.NewStyle().
 				Foreground(colorWire)
+	dotStyle = lipgloss.NewStyle().
+			Foreground(colorRust)
+	byeStyle = lipgloss.NewStyle().
+			Italic(true).
+			Foreground(colorFgDim)
 	panelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorWire).
