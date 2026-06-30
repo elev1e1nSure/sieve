@@ -197,7 +197,7 @@ func autoUpdate(ctx context.Context) (bool, error) {
 
 	result, err := selfupdate.New().Update(ctx, true)
 	if err == nil && result.Updated {
-		fmt.Println(successStyle.Render("updated") + " restarting in the same terminal")
+		fmt.Println(successStyle.Render("updated") + " restarting")
 		return true, nil
 	}
 	if errors.Is(err, selfupdate.ErrNoRelease) || errors.Is(err, selfupdate.ErrNoAsset) || errors.Is(err, selfupdate.ErrGoRun) || errors.Is(err, selfupdate.ErrCurrent) {
