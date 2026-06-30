@@ -6,6 +6,9 @@ default:
 fmt:
     gofmt -w main.go internal
 
+icon:
+    go-winres simply --arch amd64 --icon assets/icon/icon.png --manifest cli --file-description "sieve" --product-name "sieve" --copyright "elev1e1nSure" --product-version "git-tag" --file-version "git-tag"
+
 test:
     go test ./...
 

@@ -13,6 +13,7 @@ This project uses [`just`](https://github.com/casey/just) as the command runner;
 - `just fmt` — `gofmt -w main.go internal`
 - `just test` — `go test ./...` (no test files exist yet; this is the command to use once they do)
 - `just clean` — removes `sieve.exe` and `dist/`
+- `just icon` — regenerates `rsrc_windows_amd64.syso` from `assets/icon/icon.png` via [`go-winres`](https://github.com/tc-hib/go-winres); the `.syso` is committed and embedded automatically by `go build`/`go run`, so this only needs to run again after changing the source icon
 
 There is no separate lint command; `go vet ./...` and `gofmt -l .` are the checks used in practice.
 
