@@ -41,10 +41,11 @@ func Execute() {
 
 	opts := options{}
 	root := &cobra.Command{
-		Use:          "sieve",
-		Short:        "Run zapret configs for Discord and YouTube",
-		Version:      version.String(),
-		SilenceUsage: true,
+		Use:           "sieve",
+		Short:         "Run zapret configs for Discord and YouTube",
+		Version:       version.String(),
+		SilenceUsage:  true,
+		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if hasChangedFlags(cmd.Flags()) {
 				return runCommandMode(cmd.Context(), cmd.Flags(), opts)
@@ -76,6 +77,10 @@ func Execute() {
 }
 
 func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) error {
+	if opts.fix && !opts.diagnostics {
+		return fmt.Errorf("--fix only works together with --diagnostics")
+	}
+
 	store := settings.NewStore()
 	runtime, err := store.Load()
 	if err != nil {

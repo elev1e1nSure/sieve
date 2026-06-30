@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,7 +73,7 @@ func (u Updater) Update(ctx context.Context, restart bool) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if currentVersion() == latest.TagName {
+	if isCurrent(latest.TagName) {
 		return Result{Version: latest.TagName, Message: "already up to date"}, ErrCurrent
 	}
 	asset, ok := latest.compatibleAsset()
@@ -105,6 +106,7 @@ func (u Updater) fetchLatest(ctx context.Context) (release, error) {
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "sieve")
+	setAuthHeader(req)
 
 	resp, err := u.client().Do(req)
 	if err != nil {
@@ -136,6 +138,7 @@ func (u Updater) download(ctx context.Context, url string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "sieve")
+	setAuthHeader(req)
 
 	resp, err := u.client().Do(req)
 	if err != nil {
@@ -182,6 +185,18 @@ func (u Updater) client() *http.Client {
 	return http.DefaultClient
 }
 
+func setAuthHeader(req *http.Request) {
+	token := strings.TrimSpace(os.Getenv("GH_TOKEN"))
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
+	}
+	if token == "" {
+		return
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+}
+
 func (r release) compatibleAsset() (releaseAsset, bool) {
 	preferred := []string{
 		"sieve.exe",
@@ -221,6 +236,64 @@ func currentVersion() string {
 	}
 
 	return ""
+}
+
+func isCurrent(latest string) bool {
+	current := currentVersion()
+	if current == "" {
+		return false
+	}
+	if current == latest {
+		return true
+	}
+
+	currentVersion, okCurrent := parseVersion(current)
+	latestVersion, okLatest := parseVersion(latest)
+	if !okCurrent || !okLatest {
+		return false
+	}
+
+	return currentVersion.compare(latestVersion) >= 0
+}
+
+type semanticVersion struct {
+	major int
+	minor int
+	patch int
+}
+
+func parseVersion(value string) (semanticVersion, bool) {
+	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
+	parts := strings.Split(value, ".")
+	if len(parts) != 3 {
+		return semanticVersion{}, false
+	}
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return semanticVersion{}, false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return semanticVersion{}, false
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return semanticVersion{}, false
+	}
+
+	return semanticVersion{major: major, minor: minor, patch: patch}, true
+}
+
+func (v semanticVersion) compare(other semanticVersion) int {
+	switch {
+	case v.major != other.major:
+		return v.major - other.major
+	case v.minor != other.minor:
+		return v.minor - other.minor
+	default:
+		return v.patch - other.patch
+	}
 }
 
 func writeCurrentVersion(version string) error {
