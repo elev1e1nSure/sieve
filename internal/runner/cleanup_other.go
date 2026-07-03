@@ -2,8 +2,8 @@
 
 package runner
 
-func killExistingProcess() error {
-	return nil
-}
+func terminateLegacyProcesses(string) (bool, error) { return false, nil }
 
-func cleanupSystem() {}
+func terminateProcessesAtPath(string, uint32) (bool, error) { return false, nil }
+
+func cleanupSystem() error { return nil }

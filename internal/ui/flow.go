@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"time"
@@ -39,14 +40,13 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
 		return
 	}
-	if err := f.Runner.KillExisting(); err != nil {
-		updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
-		return
-	}
-
 	sorted := store.SortedConfigs(f.Configs)
 	total := len(sorted)
 	winwsPath := filepath.Join(f.Assets.BinDir, "winws.exe")
+	if err := f.Runner.Prepare(winwsPath); err != nil {
+		updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
+		return
+	}
 
 	for i, config := range sorted {
 		select {
@@ -73,7 +73,7 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		}
 
 		if !sleepContext(f.Ctx, winwsWarmup) {
-			_ = process.Stop()
+			_ = f.Runner.Stop()
 			updates <- flowUpdateMsg{kind: flowDone, done: true}
 			return
 		}
@@ -81,7 +81,7 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		result := f.Tester.Test(f.Ctx)
 		ok := result.Discord && result.YouTube && result.Err == nil
 		if err := store.RecordResult(config.Name, ok, time.Now()); err != nil {
-			_ = process.Stop()
+			_ = f.Runner.Stop()
 			updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
 			return
 		}
@@ -91,18 +91,29 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 				select {
 				case line, more := <-process.Logs():
 					if !more {
+						err := process.Wait()
+						if err == nil {
+							err = errors.New("winws exited unexpectedly")
+						}
+						if cleanupErr := f.Runner.Stop(); cleanupErr != nil {
+							err = errors.Join(err, cleanupErr)
+						}
+						updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
 						return
 					}
 					updates <- flowUpdateMsg{kind: flowLog, log: line}
 				case <-f.Ctx.Done():
-					_ = process.Stop()
+					_ = f.Runner.Stop()
 					updates <- flowUpdateMsg{kind: flowDone, done: true}
 					return
 				}
 			}
 		}
 
-		_ = process.Stop()
+		if err := f.Runner.Stop(); err != nil {
+			updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
+			return
+		}
 	}
 
 	updates <- flowUpdateMsg{kind: flowNoLuck, done: true}
@@ -232,13 +243,7 @@ func (m Model) runFlow(updates chan<- flowUpdateMsg) tea.Cmd {
 
 func (m Model) stopRunning() tea.Cmd {
 	return func() tea.Msg {
-		if m.flow.process != nil {
-			_ = m.flow.process.Stop()
-		} else {
-			m.app.Runner.Cleanup()
-		}
-
-		return cleanupDoneMsg{}
+		return cleanupDoneMsg{err: m.app.Runner.Stop()}
 	}
 }
 

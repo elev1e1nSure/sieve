@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 
 type options struct {
 	update            bool
+	stop              bool
 	updateIPSet       bool
 	resetCache        bool
 	clearDiscordCache bool
@@ -60,6 +62,7 @@ func Execute() {
 
 	flags := root.Flags()
 	flags.BoolVar(&opts.update, "update", false, "update sieve from the latest GitHub release and exit")
+	flags.BoolVar(&opts.stop, "stop", false, "force-stop the active sieve instance and its processes")
 	flags.IntVar(&opts.runtime.TestTimeout, "test-timeout", 0, "save connection test timeout in seconds")
 	flags.BoolVar(&opts.resetCache, "reset-cache", false, "delete cached config results and exit")
 	flags.BoolVar(&opts.runtime.NoCache, "no-cache", false, "save config cache disabled/enabled")
@@ -108,6 +111,30 @@ func applyStyledTemplates(root *cobra.Command) {
 func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) error {
 	if opts.fix && !opts.diagnostics {
 		return fmt.Errorf("--fix only works together with --diagnostics")
+	}
+	if opts.stop {
+		if changedFlagCount(flags) != 1 {
+			return fmt.Errorf("--stop cannot be combined with other flags")
+		}
+		adminService := admin.NewService()
+		if !adminService.IsAdmin() {
+			if err := adminService.ElevateAndRestart(); err != nil {
+				return fmt.Errorf("failed to request admin rights: %w", err)
+			}
+			return nil
+		}
+
+		manager := assets.NewManager()
+		stopped, err := runner.StopAll(filepath.Join(manager.BinDir(), "winws.exe"))
+		if err != nil {
+			return fmt.Errorf("failed to stop sieve: %w", err)
+		}
+		if stopped {
+			fmt.Println(ok("sieve stopped"))
+		} else {
+			fmt.Println(ok("sieve is not running"))
+		}
+		return nil
 	}
 
 	store := settings.NewStore()
@@ -164,7 +191,7 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 	return nil
 }
 
-func runApp(ctx context.Context) error {
+func runApp(ctx context.Context) (runErr error) {
 	adminService := admin.NewService()
 	if !adminService.IsAdmin() {
 		if err := adminService.ElevateAndRestart(); err != nil {
@@ -173,8 +200,6 @@ func runApp(ctx context.Context) error {
 		return nil
 	}
 
-	defer runner.New().Cleanup()
-
 	startupNotices := make([]string, 0, 6)
 
 	if updated, err := autoUpdate(ctx); updated {
@@ -182,6 +207,17 @@ func runApp(ctx context.Context) error {
 	} else if err != nil {
 		startupNotices = append(startupNotices, "update check skipped: "+err.Error())
 	}
+
+	session, err := runner.BeginSession()
+	if err != nil {
+		return err
+	}
+	defer session.KeepAlive()
+
+	processRunner := runner.New()
+	defer func() {
+		runErr = errors.Join(runErr, processRunner.Stop())
+	}()
 
 	store := settings.NewStore()
 	runtime, err := store.Load()
@@ -207,15 +243,19 @@ func runApp(ctx context.Context) error {
 		Assets:         assets.NewManager(),
 		Cache:          &cacheStore,
 		Configs:        configs.All(),
-		Runner:         runner.New(),
+		Runner:         processRunner,
 		Tester:         tester.New(time.Duration(runtime.TestTimeout) * time.Second),
 		StartupNotices: startupNotices,
 		Settings:       runtime,
 	}
 
 	program := tea.NewProgram(ui.NewModel(app))
-	if _, err := program.Run(); err != nil {
+	finalModel, err := program.Run()
+	if err != nil {
 		return fmt.Errorf("failed to run TUI: %w", err)
+	}
+	if model, ok := finalModel.(ui.Model); ok && model.ShutdownError() != nil {
+		return fmt.Errorf("failed to stop sieve: %w", model.ShutdownError())
 	}
 
 	return nil
@@ -337,6 +377,14 @@ func hasChangedFlags(flags *pflag.FlagSet) bool {
 	})
 
 	return changed
+}
+
+func changedFlagCount(flags *pflag.FlagSet) int {
+	count := 0
+	flags.Visit(func(*pflag.Flag) {
+		count++
+	})
+	return count
 }
 
 func runtimeFlagsChanged(flags *pflag.FlagSet) bool {

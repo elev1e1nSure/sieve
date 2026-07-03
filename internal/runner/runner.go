@@ -2,84 +2,121 @@ package runner
 
 import (
 	"bufio"
-	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"sync"
-	"time"
 )
 
-const filterClearDelay = 800 * time.Millisecond
+type Runner struct {
+	mu        sync.Mutex
+	active    *Process
+	winwsPath string
+	clean     bool
+}
 
-type Runner struct{}
+type processGroup interface {
+	Assign(pid int) error
+	Terminate() error
+	Close() error
+}
 
 type ProcessRunner interface {
-	KillExisting() error
-	Cleanup()
+	Prepare(winwsPath string) error
 	Start(winwsPath string, args []string) (*Process, error)
+	Stop() error
 }
 
 type Process struct {
-	cmd     *exec.Cmd
-	cancel  context.CancelFunc
-	logs    chan string
-	done    chan struct{}
-	stopCh  chan struct{}
-	scansWg sync.WaitGroup
-	once    sync.Once
-	mu      sync.Mutex
-	waitErr error
-	stopped bool
+	cmd         *exec.Cmd
+	group       processGroup
+	logs        chan string
+	done        chan struct{}
+	stopCh      chan struct{}
+	scansWg     sync.WaitGroup
+	stopOnce    sync.Once
+	groupOnce   sync.Once
+	mu          sync.Mutex
+	waitErr     error
+	stopErr     error
+	stopping    bool
+	groupClosed bool
 }
 
-func New() Runner {
-	return Runner{}
+func New() *Runner {
+	return &Runner{clean: true}
 }
 
-func (r Runner) KillExisting() error {
-	if err := killExistingProcess(); err != nil {
+func (r *Runner) Prepare(winwsPath string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.winwsPath = winwsPath
+	r.clean = false
+	if _, err := terminateLegacyProcesses(winwsPath); err != nil {
 		return err
 	}
-	cleanupSystem()
-
-	time.Sleep(filterClearDelay)
+	if err := cleanupSystem(); err != nil {
+		return err
+	}
+	r.clean = true
 	return nil
 }
 
-func (r Runner) Cleanup() {
-	_ = killExistingProcess()
-	cleanupSystem()
-	time.Sleep(filterClearDelay)
-}
+func (r *Runner) Start(winwsPath string, args []string) (*Process, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-func (r Runner) Start(winwsPath string, args []string) (*Process, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, winwsPath, args...)
+	if r.active != nil {
+		select {
+		case <-r.active.done:
+			r.active = nil
+		default:
+			return nil, errors.New("winws process is already running")
+		}
+	}
 
+	group, err := newProcessGroup()
+	if err != nil {
+		return nil, fmt.Errorf("create winws process group: %w", err)
+	}
+
+	cmd := exec.Command(winwsPath, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		cancel()
+		group.Close()
 		return nil, err
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		cancel()
+		group.Close()
 		return nil, err
 	}
 
 	process := &Process{
 		cmd:    cmd,
-		cancel: cancel,
+		group:  group,
 		logs:   make(chan string, 256),
 		done:   make(chan struct{}),
 		stopCh: make(chan struct{}),
 	}
-
 	if err := cmd.Start(); err != nil {
-		cancel()
+		group.Close()
 		return nil, err
+	}
+	r.clean = false
+	if err := group.Assign(cmd.Process.Pid); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		group.Close()
+		_, legacyErr := terminateLegacyProcesses(winwsPath)
+		cleanupErr := cleanupSystem()
+		if legacyErr == nil && cleanupErr == nil {
+			r.clean = true
+		}
+		return nil, errors.Join(fmt.Errorf("assign winws process group: %w", err), legacyErr, cleanupErr)
 	}
 
 	process.scansWg.Add(2)
@@ -87,51 +124,79 @@ func (r Runner) Start(winwsPath string, args []string) (*Process, error) {
 	go process.scan(stderr)
 	go process.wait()
 
+	r.active = process
+	r.winwsPath = winwsPath
+	r.clean = false
 	return process, nil
+}
+
+func (r *Runner) Stop() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.active == nil && r.clean {
+		return nil
+	}
+
+	var stopErr error
+	if r.active != nil {
+		stopErr = r.active.stop()
+		r.active = nil
+	}
+	_, legacyErr := terminateLegacyProcesses(r.winwsPath)
+	cleanupErr := cleanupSystem()
+	if legacyErr == nil && cleanupErr == nil {
+		r.clean = true
+	}
+
+	return errors.Join(stopErr, legacyErr, cleanupErr)
 }
 
 func (p *Process) Logs() <-chan string {
 	return p.logs
 }
 
-func (p *Process) Stop() error {
+func (p *Process) Wait() error {
+	<-p.done
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.waitErr
+}
+
+func (p *Process) stop() error {
 	select {
 	case <-p.done:
-		err := p.Wait()
-		cleanupSystem()
-		time.Sleep(filterClearDelay)
-		return err
+		return p.Wait()
 	default:
 	}
 
-	p.once.Do(func() {
+	p.stopOnce.Do(func() {
 		close(p.stopCh)
 		p.mu.Lock()
-		p.stopped = true
+		if p.groupClosed {
+			p.mu.Unlock()
+			return
+		}
+		p.stopping = true
 		p.mu.Unlock()
-		p.cancel()
-		if p.cmd.Process != nil {
-			_ = p.cmd.Process.Kill()
+
+		if err := p.group.Terminate(); err != nil {
+			p.mu.Lock()
+			p.stopErr = err
+			p.mu.Unlock()
+			if killErr := p.cmd.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
+				p.mu.Lock()
+				p.stopErr = errors.Join(p.stopErr, killErr)
+				p.mu.Unlock()
+			}
 		}
 	})
 
-	err := p.Wait()
-	cleanupSystem()
-	time.Sleep(filterClearDelay)
-	if errors.Is(err, context.Canceled) || errors.Is(err, os.ErrProcessDone) || isKilled(err) {
-		return nil
-	}
-
-	return err
-}
-
-func (p *Process) Wait() error {
-	<-p.done
-
+	waitErr := p.Wait()
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	return p.waitErr
+	stopErr := p.stopErr
+	p.mu.Unlock()
+	return errors.Join(stopErr, waitErr)
 }
 
 func (p *Process) scan(reader io.Reader) {
@@ -142,6 +207,8 @@ func (p *Process) scan(reader io.Reader) {
 		case p.logs <- scanner.Text():
 		case <-p.stopCh:
 			return
+		default:
+			// Process output must never block process shutdown.
 		}
 	}
 }
@@ -149,22 +216,18 @@ func (p *Process) scan(reader io.Reader) {
 func (p *Process) wait() {
 	err := p.cmd.Wait()
 	p.mu.Lock()
-	if p.stopped && isKilled(err) {
+	p.groupClosed = true
+	p.mu.Unlock()
+	p.groupOnce.Do(func() { _ = p.group.Close() })
+	p.scansWg.Wait()
+
+	p.mu.Lock()
+	if p.stopping {
 		err = nil
 	}
 	p.waitErr = err
 	p.mu.Unlock()
 
-	close(p.done)
-	p.scansWg.Wait()
 	close(p.logs)
-}
-
-func isKilled(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	var exitErr *exec.ExitError
-	return errors.As(err, &exitErr)
+	close(p.done)
 }

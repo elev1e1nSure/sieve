@@ -99,7 +99,9 @@ type flowUpdateMsg struct {
 	done          bool
 }
 
-type cleanupDoneMsg struct{}
+type cleanupDoneMsg struct {
+	err error
+}
 
 func NewModel(app App) Model {
 	vp := viewport.New(80, 12)
@@ -166,6 +168,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, waitForFlowUpdate(m.flow.flowC)
 	case cleanupDoneMsg:
+		m.flow.err = msg.err
 		m.ui.state = StateBye
 		return m, tea.Quit
 	}
@@ -175,6 +178,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.ui.viewport, cmd = m.ui.viewport.Update(msg)
 	return m, cmd
+}
+
+func (m Model) ShutdownError() error {
+	return m.flow.err
 }
 
 func (m *Model) refreshBody() {
