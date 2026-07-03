@@ -116,6 +116,8 @@ func applyStyledTemplates(root *cobra.Command) {
 }
 
 func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) error {
+	printPendingUpdateFailure()
+
 	if opts.fix && !opts.diagnostics {
 		return fmt.Errorf("--fix only works together with --diagnostics")
 	}
@@ -147,6 +149,15 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 			fmt.Println(ok("sieve is not running"))
 		}
 		return nil
+	}
+	if opts.update {
+		adminService := admin.NewService()
+		if !adminService.IsAdmin() {
+			if err := adminService.ElevateAndRestart(); err != nil {
+				return fmt.Errorf("failed to request admin rights: %w", err)
+			}
+			return nil
+		}
 	}
 
 	store := settings.NewStore()
@@ -214,10 +225,19 @@ func runApp(ctx context.Context) (runErr error) {
 
 	startupNotices := make([]string, 0, 6)
 
-	if updated, err := autoUpdate(ctx); updated {
-		return nil
-	} else if err != nil {
-		startupNotices = append(startupNotices, "update check skipped: "+err.Error())
+	updateFailure, updateStateErr := selfupdate.ConsumeFailure()
+	if updateStateErr != nil {
+		startupNotices = append(startupNotices, "update status unavailable: "+updateStateErr.Error())
+	}
+	if updateFailure != "" {
+		startupNotices = append(startupNotices, updateFailure)
+	}
+	if updateStateErr == nil && updateFailure == "" {
+		if updated, err := autoUpdate(ctx); updated {
+			return nil
+		} else if err != nil {
+			startupNotices = append(startupNotices, "update check skipped: "+err.Error())
+		}
 	}
 
 	session, err := runner.BeginSession()
@@ -329,6 +349,17 @@ func runSelfUpdate(ctx context.Context, restart bool) error {
 	}
 
 	return nil
+}
+
+func printPendingUpdateFailure() {
+	message, err := selfupdate.ConsumeFailure()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, warn("update status unavailable")+"  "+err.Error())
+		return
+	}
+	if message != "" {
+		fmt.Fprintln(os.Stderr, warn("previous update failed")+"  "+message)
+	}
 }
 
 func ensureAssetsQuiet(ctx context.Context, manager assets.Manager) (assets.Info, error) {

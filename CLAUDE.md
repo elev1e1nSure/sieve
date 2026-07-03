@@ -51,7 +51,7 @@ Single-screen Bubble Tea state machine, not multi-page navigation. One `Model`/`
 - `internal/settings` — `RuntimeOptions` persisted to `%APPDATA%\sieve\settings.json` (ipset mode, domains, game filter, cache/PATH toggles); `system_windows.go`/`system_other.go` hold the `--diagnostics`/`--clear-discord-cache` platform-specific checks (build-tag split, like `runner` and `envpath`)
 - `internal/runner` — starts/stops `winws.exe`, streams its stdout/stderr as a log channel, platform-specific WinDivert/service cleanup
 - `internal/tester` — HTTP reachability check against `discord.com` and `www.youtube.com`, used to judge whether a running config actually works
-- `internal/selfupdate` — checks `GET /repos/elev1e1nSure/sieve/releases/latest`, matches a compatible asset by name (`sieve-windows-amd64.exe` preferred, `sieve.exe` as legacy fallback — see naming note below), downloads and replaces the running executable, supports same-terminal restart
+- `internal/selfupdate` — checks `GET /repos/elev1e1nSure/sieve/releases/latest`, matches a compatible asset by name (`sieve-windows-amd64.exe` preferred, `sieve.exe` as legacy fallback — see naming note below), then launches a hidden temporary helper that waits for sieve to exit, retries and verifies the replacement, records the result, and restarts only after success
 - `internal/envpath`, `internal/admin`, `internal/paths` — Windows PATH auto-add, UAC elevation, and the `%APPDATA%\sieve` install dir, each with `_windows.go`/`_other.go` split
 
 Platform-specific files follow Go's `_windows.go` / `_other.go` filename build-tag convention throughout — when adding OS-specific behavior, follow that pattern rather than runtime `runtime.GOOS` checks.

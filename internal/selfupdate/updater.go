@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/elev1e1nSure/sieve/internal/paths"
 	"github.com/elev1e1nSure/sieve/internal/version"
 )
 
@@ -86,11 +85,10 @@ func (u Updater) Update(ctx context.Context, restart bool) (Result, error) {
 		return Result{}, err
 	}
 
-	if err := replaceCurrentExecutable(exe, tmp, restart); err != nil {
+	if err := replaceCurrentExecutable(exe, tmp, latest.TagName, restart); err != nil {
 		os.Remove(tmp)
 		return Result{}, err
 	}
-	_ = writeCurrentVersion(latest.TagName)
 
 	return Result{
 		Updated: true,
@@ -225,6 +223,9 @@ func (r release) compatibleAsset() (releaseAsset, bool) {
 }
 
 func currentVersion() string {
+	if installed := verifiedInstalledVersion(); installed != "" {
+		return installed
+	}
 	if version.IsRelease() {
 		return version.Version
 	}
@@ -288,16 +289,4 @@ func (v semanticVersion) compare(other semanticVersion) int {
 	default:
 		return v.patch - other.patch
 	}
-}
-
-func writeCurrentVersion(version string) error {
-	if err := os.MkdirAll(filepath.Dir(versionFile()), 0o755); err != nil {
-		return err
-	}
-
-	return os.WriteFile(versionFile(), []byte(strings.TrimSpace(version)+"\n"), 0o644)
-}
-
-func versionFile() string {
-	return filepath.Join(paths.InstallDir(), "app-version.txt")
 }
