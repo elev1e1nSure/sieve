@@ -17,6 +17,12 @@ type Runner struct {
 	clean     bool
 }
 
+type StopResult struct {
+	Active bool
+	Forced bool
+	Legacy bool
+}
+
 type processGroup interface {
 	Assign(pid int) error
 	Terminate() error

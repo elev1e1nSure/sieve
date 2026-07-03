@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -47,6 +48,8 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
 		return
 	}
+	startFailures := 0
+	var firstStartErr error
 
 	for i, config := range sorted {
 		select {
@@ -65,6 +68,10 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 			process:       process,
 		}
 		if err != nil {
+			startFailures++
+			if firstStartErr == nil {
+				firstStartErr = err
+			}
 			if cacheErr := store.RecordResult(config.Name, false, time.Now()); cacheErr != nil {
 				updates <- flowUpdateMsg{kind: flowNoLuck, err: cacheErr, done: true}
 				return
@@ -87,6 +94,7 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		}
 		if ok {
 			updates <- flowUpdateMsg{kind: flowRunning, currentConfig: config.Name, process: process}
+			recentOutput := make([]string, 0, 3)
 			for {
 				select {
 				case line, more := <-process.Logs():
@@ -95,12 +103,14 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 						if err == nil {
 							err = errors.New("winws exited unexpectedly")
 						}
+						err = withProcessOutput(err, recentOutput)
 						if cleanupErr := f.Runner.Stop(); cleanupErr != nil {
 							err = errors.Join(err, cleanupErr)
 						}
 						updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
 						return
 					}
+					recentOutput = appendRecent(recentOutput, line, 3)
 					updates <- flowUpdateMsg{kind: flowLog, log: line}
 				case <-f.Ctx.Done():
 					_ = f.Runner.Stop()
@@ -111,12 +121,47 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		}
 
 		if err := f.Runner.Stop(); err != nil {
-			updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
+			updates <- flowUpdateMsg{kind: flowNoLuck, err: withProcessOutput(err, drainProcessOutput(process, 3)), done: true}
 			return
 		}
 	}
 
+	if startFailures == total && firstStartErr != nil {
+		updates <- flowUpdateMsg{
+			kind: flowNoLuck,
+			err:  fmt.Errorf("winws could not start for any config: %w", firstStartErr),
+			done: true,
+		}
+		return
+	}
 	updates <- flowUpdateMsg{kind: flowNoLuck, done: true}
+}
+
+func drainProcessOutput(process *runner.Process, limit int) []string {
+	lines := make([]string, 0, limit)
+	for line := range process.Logs() {
+		lines = appendRecent(lines, line, limit)
+	}
+	return lines
+}
+
+func appendRecent(lines []string, line string, limit int) []string {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return lines
+	}
+	lines = append(lines, line)
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+	return lines
+}
+
+func withProcessOutput(err error, lines []string) error {
+	if len(lines) == 0 {
+		return fmt.Errorf("winws exited: %w", err)
+	}
+	return fmt.Errorf("winws exited: %w; last output: %s", err, strings.Join(lines, " | "))
 }
 
 func (m Model) ensureAssets() tea.Cmd {

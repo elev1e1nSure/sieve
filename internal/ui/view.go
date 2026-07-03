@@ -12,7 +12,11 @@ import (
 
 func (m Model) View() string {
 	if m.ui.state == StateBye {
-		return "\n  " + byeStyle.Render("done sifting.") + "\n"
+		if m.ui.exitErr != nil {
+			message := strings.ReplaceAll(formatExitError(m.ui.exitErr), "\n", "\n    ")
+			return "\n  " + errorStyle.Render("✗ sieve stopped with an error") + "\n    " + mutedStyle.Render(message) + "\n"
+		}
+		return "\n  " + successStyle.Render("✓ "+fallback(m.ui.exitReason, "sieve stopped cleanly")) + "\n"
 	}
 
 	header := lipgloss.JoinHorizontal(
@@ -26,6 +30,20 @@ func (m Model) View() string {
 	panel := panelStyle.Width(m.ui.viewport.Width + 2).Render(m.ui.viewport.View())
 
 	return header + "\n" + panel + "\n" + m.footer()
+}
+
+func formatExitError(err error) string {
+	seen := make(map[string]bool)
+	lines := make([]string, 0, 4)
+	for _, line := range strings.Split(err.Error(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) body() string {
@@ -127,6 +145,7 @@ func (m Model) noLuckContent() string {
 func (m Model) closingContent() string {
 	return strings.Join([]string{
 		sectionTitleStyle.Render(m.ui.spinner.View() + " Cleaning up"),
+		keyValue("reason", fallback(m.ui.exitReason, "shutdown requested")),
 		cleanLog("winws", "stopping process"),
 		cleanLog("filters", "removing WinDivert services"),
 		cleanLog("exit", "closing session"),
@@ -134,6 +153,10 @@ func (m Model) closingContent() string {
 }
 
 func (m Model) footer() string {
+	if m.ui.state == StateClosing {
+		return mutedStyle.Render("cleanup in progress — please wait")
+	}
+
 	logMode := "raw"
 	if m.ui.rawLogMode {
 		logMode = "clean"
@@ -265,9 +288,6 @@ var (
 				Foreground(colorWire)
 	dotStyle = lipgloss.NewStyle().
 			Foreground(colorRust)
-	byeStyle = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(colorFgDim)
 	panelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorWire).

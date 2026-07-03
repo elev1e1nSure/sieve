@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -54,6 +55,8 @@ type uiState struct {
 	viewport       viewport.Model
 	rawLogMode     bool
 	startupNotices []string
+	exitReason     string
+	exitErr        error
 }
 
 type flowState struct {
@@ -103,6 +106,8 @@ type cleanupDoneMsg struct {
 	err error
 }
 
+type StopRequestedMsg struct{}
+
 func NewModel(app App) Model {
 	vp := viewport.New(80, 12)
 	vp.SetContent("warming up the sieve.")
@@ -138,12 +143,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
-			if m.cancel != nil {
-				m.cancel()
+			var exitErr error
+			if m.ui.state == StateNoLuck {
+				exitErr = m.flow.err
 			}
-			m.ui.state = StateClosing
-			m.refreshBody()
-			return m, m.stopRunning()
+			return m.beginShutdown("stopped by user", exitErr)
 		case "ctrl+o":
 			m.ui.rawLogMode = !m.ui.rawLogMode
 			m.refreshBody()
@@ -160,15 +164,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case assetUpdateMsg:
 		var cmd tea.Cmd
 		m, cmd = m.handleAssetUpdate(msg)
+		if m.ui.state == StateNoLuck && m.flow.err != nil {
+			return m.beginShutdown("startup failed", m.flow.err)
+		}
 		return m, cmd
 	case flowUpdateMsg:
 		m = m.handleFlowUpdate(msg)
+		if msg.kind == flowNoLuck && msg.err != nil {
+			return m.beginShutdown("winws stopped with an error", msg.err)
+		}
 		if msg.done {
 			return m, nil
 		}
 		return m, waitForFlowUpdate(m.flow.flowC)
+	case StopRequestedMsg:
+		return m.beginShutdown("stopped by --stop", nil)
 	case cleanupDoneMsg:
-		m.flow.err = msg.err
+		m.ui.exitErr = errors.Join(m.ui.exitErr, msg.err)
 		m.ui.state = StateBye
 		return m, tea.Quit
 	}
@@ -181,7 +193,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) ShutdownError() error {
-	return m.flow.err
+	return m.ui.exitErr
+}
+
+func (m Model) beginShutdown(reason string, err error) (Model, tea.Cmd) {
+	if m.ui.state == StateClosing || m.ui.state == StateBye {
+		return m, nil
+	}
+	if m.cancel != nil {
+		m.cancel()
+	}
+	m.ui.exitReason = reason
+	m.ui.exitErr = errors.Join(m.ui.exitErr, err)
+	m.ui.state = StateClosing
+	m.refreshBody()
+	return m, m.stopRunning()
 }
 
 func (m *Model) refreshBody() {

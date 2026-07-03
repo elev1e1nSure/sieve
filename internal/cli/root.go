@@ -38,6 +38,10 @@ type options struct {
 	runtime           settings.RuntimeOptions
 }
 
+type displayedError struct {
+	error
+}
+
 func Execute() {
 	cobra.MousetrapHelpText = ""
 
@@ -79,7 +83,10 @@ func Execute() {
 	applyStyledTemplates(root)
 
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, failStyle.Render("✗")+" "+err.Error())
+		var displayed displayedError
+		if !errors.As(err, &displayed) {
+			fmt.Fprintln(os.Stderr, failStyle.Render("✗")+" "+err.Error())
+		}
 		os.Exit(1)
 	}
 }
@@ -125,13 +132,18 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 		}
 
 		manager := assets.NewManager()
-		stopped, err := runner.StopAll(filepath.Join(manager.BinDir(), "winws.exe"))
+		result, err := runner.StopAll(filepath.Join(manager.BinDir(), "winws.exe"))
 		if err != nil {
-			return fmt.Errorf("failed to stop sieve: %w", err)
+			return fmt.Errorf("sieve could not stop cleanly: %w", err)
 		}
-		if stopped {
-			fmt.Println(ok("sieve stopped"))
-		} else {
+		switch {
+		case result.Forced:
+			fmt.Println(warn("sieve did not respond and was force-stopped"))
+		case result.Active:
+			fmt.Println(ok("sieve stopped cleanly"))
+		case result.Legacy:
+			fmt.Println(warn("stopped leftover sieve processes"))
+		default:
 			fmt.Println(ok("sieve is not running"))
 		}
 		return nil
@@ -250,12 +262,16 @@ func runApp(ctx context.Context) (runErr error) {
 	}
 
 	program := tea.NewProgram(ui.NewModel(app))
+	go func() {
+		<-session.StopRequested()
+		program.Send(ui.StopRequestedMsg{})
+	}()
 	finalModel, err := program.Run()
 	if err != nil {
 		return fmt.Errorf("failed to run TUI: %w", err)
 	}
 	if model, ok := finalModel.(ui.Model); ok && model.ShutdownError() != nil {
-		return fmt.Errorf("failed to stop sieve: %w", model.ShutdownError())
+		return displayedError{fmt.Errorf("sieve stopped with an error: %w", model.ShutdownError())}
 	}
 
 	return nil

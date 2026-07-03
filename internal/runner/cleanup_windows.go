@@ -131,6 +131,9 @@ func equalPath(left, right string) bool {
 func cleanupSystem() (cleanupErr error) {
 	manager, err := mgr.Connect()
 	if err != nil {
+		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+			return errors.New("Windows denied access to service cleanup; run sieve as administrator")
+		}
 		return fmt.Errorf("connect to Windows service manager: %w", err)
 	}
 	defer func() {
@@ -156,7 +159,7 @@ func cleanupSystem() (cleanupErr error) {
 	if status.State != svc.Stopped {
 		if _, err := service.Control(svc.Stop); err != nil && !errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
 			service.Close()
-			return fmt.Errorf("stop %s service: %w", winDivertService, err)
+			return fmt.Errorf("WinDivert refused to stop; another VPN, DPI bypass, or traffic-filtering app may be using it: %w", err)
 		}
 		if err := waitForServiceState(service, svc.Stopped, cleanupTimeout); err != nil {
 			service.Close()
@@ -188,7 +191,7 @@ func waitForServiceState(service *mgr.Service, want svc.State, timeout time.Dura
 		}
 		time.Sleep(pollInterval)
 	}
-	return fmt.Errorf("%s service did not stop within %s", winDivertService, timeout)
+	return fmt.Errorf("WinDivert is still in use after %s; close other VPN, DPI bypass, or traffic-filtering apps and run sieve --stop again", timeout)
 }
 
 func waitForServiceDeletion(manager *mgr.Mgr, timeout time.Duration) error {
@@ -205,5 +208,5 @@ func waitForServiceDeletion(manager *mgr.Mgr, timeout time.Duration) error {
 		}
 		time.Sleep(pollInterval)
 	}
-	return fmt.Errorf("%s service was not deleted within %s", winDivertService, timeout)
+	return fmt.Errorf("WinDivert remained loaded after %s; another application is still holding the driver", timeout)
 }
