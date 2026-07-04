@@ -16,6 +16,10 @@ func (s *Session) StopRequested() <-chan struct{} { return s.stop }
 
 func (s *Session) KeepAlive() {}
 
+func SessionActive() (bool, error) {
+	return false, errors.New("sieve process sessions are only supported on Windows")
+}
+
 func StopAll(string) (StopResult, error) {
 	return StopResult{}, errors.New("--stop is only supported on Windows")
 }

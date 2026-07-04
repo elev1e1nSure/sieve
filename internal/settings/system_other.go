@@ -20,6 +20,14 @@ func RunDiagnostics(_ string, _ bool) DiagnosticsReport {
 	}}}
 }
 
+func Status(_ string) DiagnosticsReport {
+	return DiagnosticsReport{Items: []DiagnosticItem{{
+		Status:  "warn",
+		Name:    "platform",
+		Message: "status is only available on Windows",
+	}}}
+}
+
 func ClearDiscordCache() DiagnosticsReport {
 	return DiagnosticsReport{Items: []DiagnosticItem{{
 		Status:  "warn",

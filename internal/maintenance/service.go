@@ -75,6 +75,29 @@ func (s Service) UpdateIPSet(ctx context.Context) (Report, error) {
 	return fromListReport("Update IPSet", report), nil
 }
 
+func (s Service) Status() Report {
+	report := fromDiagnostics("Sieve status", settings.Status(s.assets.BinDir()))
+
+	sessionActive, sessionErr := runner.SessionActive()
+	sessionItem := Item{Status: "ok", Name: "sieve session", Message: "no other sieve instance is running"}
+	switch {
+	case sessionErr != nil:
+		sessionItem = Item{Status: "warn", Name: "sieve session", Message: sessionErr.Error()}
+	case sessionActive:
+		sessionItem = Item{Status: "ok", Name: "sieve session", Message: "another sieve instance is running"}
+	}
+	report.Items = append([]Item{sessionItem}, report.Items...)
+
+	cacheStore := cache.NewStore()
+	if err := cacheStore.Load(); err == nil && cacheStore.Data.LastWorking != "" {
+		report.Items = append(report.Items, Item{Status: "ok", Name: "last working config", Message: cacheStore.Data.LastWorking})
+	} else {
+		report.Items = append(report.Items, Item{Status: "warn", Name: "last working config", Message: "none recorded yet"})
+	}
+
+	return report
+}
+
 func (s Service) Diagnostics(fix bool) Report {
 	return fromDiagnostics("Diagnostics", settings.RunDiagnostics(s.assets.BinDir(), fix))
 }

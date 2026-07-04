@@ -73,6 +73,31 @@ func RunDiagnostics(binDir string, autoFix bool) DiagnosticsReport {
 	return report
 }
 
+func Status(binDir string) DiagnosticsReport {
+	report := DiagnosticsReport{}
+
+	if processRunning("winws.exe") {
+		report.add("ok", "winws.exe", "process is running")
+	} else {
+		report.add("warn", "winws.exe", "process is not running")
+	}
+
+	switch {
+	case serviceRunning("WinDivert"):
+		report.add("ok", "WinDivert driver", "service is running")
+	case matchingServiceNames("WinDivert") != nil:
+		report.add("warn", "WinDivert driver", "service is installed but not running")
+	default:
+		report.add("warn", "WinDivert driver", "service is not installed")
+	}
+
+	if matches, _ := filepath.Glob(filepath.Join(binDir, "*.sys")); len(matches) == 0 {
+		report.add("warn", "WinDivert driver file", "not found in bin directory")
+	}
+
+	return report
+}
+
 func ClearDiscordCache() DiagnosticsReport {
 	report := DiagnosticsReport{}
 	if processRunning("Discord.exe") {

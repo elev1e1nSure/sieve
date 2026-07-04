@@ -112,6 +112,19 @@ func (s *Session) KeepAlive() {
 	runtime.KeepAlive(s)
 }
 
+// SessionActive reports whether another sieve instance currently holds the
+// session lock, without acquiring or otherwise disturbing it.
+func SessionActive() (bool, error) {
+	mutex, active, err := openSessionMutex()
+	if err != nil {
+		return false, err
+	}
+	if active {
+		defer windows.CloseHandle(mutex)
+	}
+	return active, nil
+}
+
 func StopAll(winwsPath string) (StopResult, error) {
 	result, sessionErr := stopActiveSession()
 

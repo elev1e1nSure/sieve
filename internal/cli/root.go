@@ -35,6 +35,7 @@ type options struct {
 	clearDiscordCache bool
 	diagnostics       bool
 	fix               bool
+	status            bool
 	runtime           settings.RuntimeOptions
 }
 
@@ -78,6 +79,7 @@ func Execute() {
 	flags.BoolVar(&opts.clearDiscordCache, "clear-discord-cache", false, "close Discord, delete cache dirs, and exit")
 	flags.BoolVar(&opts.diagnostics, "diagnostics", false, "run Windows diagnostics and exit")
 	flags.BoolVar(&opts.fix, "fix", false, "allow diagnostics to fix known service/TCP timestamp issues")
+	flags.BoolVar(&opts.status, "status", false, "report whether sieve/winws is running and exit")
 
 	applyStyledTemplates(root)
 
@@ -189,6 +191,9 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 	}
 	if opts.clearDiscordCache {
 		printMaintenanceReport(service.ClearDiscordCache())
+	}
+	if opts.status {
+		printMaintenanceReport(service.Status())
 	}
 	if opts.update {
 		return runSelfUpdate(ctx, false)
@@ -326,7 +331,6 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 
 	return nil
 }
-
 
 func autoUpdate(ctx context.Context) (updated bool, err error) {
 	defer func() {
