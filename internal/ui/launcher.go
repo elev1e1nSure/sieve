@@ -367,7 +367,7 @@ func (m *LauncherModel) startAction() (tea.Model, tea.Cmd) {
 
 func (m LauncherModel) View() string {
 	header := lipgloss.JoinHorizontal(lipgloss.Center,
-		dotStyle.Render("●")+" "+titleStyle.Render("sieve"), " ", versionStyle.Render("v"+version.Version))
+		dotStyle.Render("●")+" "+titleStyle.Render("sieve"), " ", versionStyle.Render(version.Version))
 	body := ""
 	switch m.page {
 	case launcherMenu:

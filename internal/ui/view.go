@@ -23,7 +23,7 @@ func (m Model) View() string {
 		lipgloss.Center,
 		dotStyle.Render("●")+" "+titleStyle.Render("sieve"),
 		" ",
-		versionStyle.Render("v"+version.Version),
+		versionStyle.Render(version.Version),
 		" ",
 		m.stateBadge(),
 	)
@@ -200,7 +200,6 @@ func (m Model) withStartupNotices(lines []string) []string {
 
 	return lines
 }
-
 
 func hint(key, label string) string {
 	return hintStyle.Render(key) + hintTextStyle.Render(" "+label)
