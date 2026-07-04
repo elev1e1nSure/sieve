@@ -166,7 +166,7 @@ func (m Model) footer() string {
 
 	return lipgloss.JoinHorizontal(
 		lipgloss.Center,
-		hint("q/ctrl+c", "quit"),
+		hint("ctrl+c", "quit"),
 		sep,
 		hint("ctrl+o", logMode),
 	)
@@ -200,6 +200,7 @@ func (m Model) withStartupNotices(lines []string) []string {
 
 	return lines
 }
+
 
 func hint(key, label string) string {
 	return hintStyle.Render(key) + hintTextStyle.Render(" "+label)

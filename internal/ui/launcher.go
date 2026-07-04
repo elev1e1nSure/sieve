@@ -474,13 +474,13 @@ func (m LauncherModel) launcherFooter() string {
 	case launcherEdit:
 		return hint("enter", "apply") + sep + hint("esc", "cancel")
 	case launcherConfirm:
-		return hint("enter/y", "confirm") + sep + hint("esc/n", "cancel")
+		return hint("enter", "confirm") + sep + hint("esc", "cancel")
 	case launcherWorking:
 		return mutedStyle.Render("operation in progress")
 	case launcherResult:
 		return hint("enter", "back")
 	default:
-		return hint("↑/↓", "select") + sep + hint("enter", "open") + sep + hint("q", "back/quit")
+		return hint("↑/↓", "select") + sep + hint("enter", "open") + sep + hint("esc", "back/quit")
 	}
 }
 
