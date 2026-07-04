@@ -61,8 +61,6 @@ const (
 	rowDiagnostics
 	rowDiagnosticsFix
 	rowClearDiscordCache
-	rowSave
-	rowCancel
 	settingsRowCount
 )
 
@@ -140,13 +138,11 @@ func (m LauncherModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case settingsSavedMsg:
 		if msg.err != nil {
 			m.err = msg.err
-			m.page = launcherResult
 			return m, nil
 		}
+		m.err = nil
 		m.draft = msg.opts
 		m.saved = msg.opts
-		m.page = launcherMenu
-		m.menuCursor = 0
 		return m, nil
 	case maintenanceDoneMsg:
 		m.report, m.err = msg.report, msg.err
@@ -184,6 +180,7 @@ func (m LauncherModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m.draft = m.saved
+			m.err = nil
 			m.page = launcherSettings
 		case "q", "esc":
 			return m, tea.Quit
@@ -196,12 +193,13 @@ func (m LauncherModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.rowCursor = (m.rowCursor + 1) % settingsRowCount
 		case "left", "h":
 			m.changeSetting(-1)
+			return m, m.persistDraft()
 		case "right", "l", " ":
 			m.changeSetting(1)
+			return m, m.persistDraft()
 		case "enter":
 			return m.activateRow()
 		case "q", "esc":
-			m.draft = m.saved
 			m.page = launcherMenu
 			m.menuCursor = 1
 		}
@@ -234,7 +232,7 @@ func (m LauncherModel) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.page = launcherSettings
 			m.input.Blur()
-			return m, nil
+			return m, m.persistDraft()
 		case "esc", "ctrl+c":
 			m.err = nil
 			m.page = launcherSettings
@@ -255,22 +253,7 @@ func (m *LauncherModel) activateRow() (tea.Model, tea.Cmd) {
 		return *m, textinput.Blink
 	case rowCache, rowPath, rowIPSet, rowGame:
 		m.changeSetting(1)
-		return *m, nil
-	case rowSave:
-		draft := m.draft.Normalized()
-		if err := draft.Validate(); err != nil {
-			m.err = err
-			m.report = maintenance.Report{Title: "Save settings"}
-			m.page = launcherResult
-			return *m, nil
-		}
-		m.page = launcherWorking
-		return *m, tea.Batch(m.saveSettings(draft), m.spinner.Tick)
-	case rowCancel:
-		m.draft = m.saved
-		m.page = launcherMenu
-		m.menuCursor = 1
-		return *m, nil
+		return *m, m.persistDraft()
 	default:
 		m.action = actionForRow(m.rowCursor)
 		if m.action == actionDiagnostics {
@@ -336,6 +319,14 @@ func (m LauncherModel) saveSettings(draft settings.RuntimeOptions) tea.Cmd {
 	return func() tea.Msg {
 		return settingsSavedMsg{opts: draft, err: m.store.Save(draft)}
 	}
+}
+
+func (m LauncherModel) persistDraft() tea.Cmd {
+	draft := m.draft.Normalized()
+	if err := draft.Validate(); err != nil {
+		return func() tea.Msg { return settingsSavedMsg{err: err} }
+	}
+	return m.saveSettings(draft)
 }
 
 func (m *LauncherModel) startAction() (tea.Model, tea.Cmd) {
@@ -413,17 +404,18 @@ func (m LauncherModel) settingsView() string {
 		{"Run diagnostics", ""},
 		{"Run diagnostics and fix", ""},
 		{"Clear Discord cache", ""},
-		{"Save settings", ""},
-		{"Cancel", ""},
 	}
 
 	lines := []string{sectionTitleStyle.Render("Settings")}
 	start, end := visibleRange(m.rowCursor, len(rows), max(6, m.height-10))
 	for i := start; i < end; i++ {
-		if i == rowUpdate || i == rowSave {
+		if i == rowUpdate {
 			lines = append(lines, "")
 		}
 		lines = append(lines, selectableRow(i == m.rowCursor, rows[i].label, rows[i].value))
+	}
+	if m.err != nil {
+		lines = append(lines, "", errorStyle.Render(m.err.Error()))
 	}
 	return strings.Join(lines, "\n")
 }
