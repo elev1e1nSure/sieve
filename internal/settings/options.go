@@ -2,6 +2,7 @@ package settings
 
 import (
 	"context"
+	"fmt"
 	"strings"
 )
 
@@ -45,12 +46,6 @@ func (o RuntimeOptions) Game() GamePorts {
 	}
 }
 
-func (o RuntimeOptions) HasListChanges() bool {
-	return strings.TrimSpace(o.IPSetMode) != "" ||
-		len(o.Domains) > 0 ||
-		len(o.DomainFiles) > 0
-}
-
 func (o RuntimeOptions) Normalized() RuntimeOptions {
 	if o.TestTimeout <= 0 {
 		o.TestTimeout = 5
@@ -60,6 +55,25 @@ func (o RuntimeOptions) Normalized() RuntimeOptions {
 	}
 
 	return o
+}
+
+func (o RuntimeOptions) Validate() error {
+	switch strings.ToLower(strings.TrimSpace(o.IPSetMode)) {
+	case IPSetUnchanged, IPSetLoaded, IPSetNone, IPSetAny:
+	default:
+		return fmt.Errorf("invalid ipset mode %q: use loaded, none, or any", o.IPSetMode)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(o.GameMode)) {
+	case "", GameOff, GameAll, GameTCP, GameUDP:
+	default:
+		return fmt.Errorf("invalid game mode %q: use off, all, tcp, or udp", o.GameMode)
+	}
+	if o.TestTimeout <= 0 {
+		return fmt.Errorf("test timeout must be greater than 0")
+	}
+
+	return nil
 }
 
 func (o RuntimeOptions) Apply(ctx context.Context, listsDir string) ([]string, error) {

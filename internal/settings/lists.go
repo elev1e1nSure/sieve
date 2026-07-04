@@ -17,6 +17,8 @@ import (
 const (
 	ipsetURL      = "https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/ipset-service.txt"
 	ipsetSentinel = "203.0.113.113/32"
+	managedStart  = "# sieve: managed domains begin"
+	managedEnd    = "# sieve: managed domains end"
 )
 
 type ListReport struct {
@@ -30,10 +32,6 @@ type ReportItem struct {
 
 func ApplyLists(ctx context.Context, listsDir string, opts RuntimeOptions) (ListReport, error) {
 	report := ListReport{}
-	if !opts.HasListChanges() {
-		return report, nil
-	}
-
 	if err := os.MkdirAll(listsDir, 0o755); err != nil {
 		return report, err
 	}
@@ -64,12 +62,11 @@ func ApplyLists(ctx context.Context, listsDir string, opts RuntimeOptions) (List
 	if err != nil {
 		return report, err
 	}
+	if err := replaceManagedDomains(filepath.Join(listsDir, "list-general-user.txt"), domains); err != nil {
+		return report, err
+	}
 	if len(domains) > 0 {
-		count, err := mergeDomains(filepath.Join(listsDir, "list-general-user.txt"), domains)
-		if err != nil {
-			return report, err
-		}
-		report.add("domains", fmt.Sprintf("merged %d explicit domains into list-general-user.txt", count))
+		report.add("domains", fmt.Sprintf("configured %d explicit domains in list-general-user.txt", len(domains)))
 	}
 
 	return report, nil
@@ -327,44 +324,50 @@ func normalizeDomain(value string) string {
 	return domain
 }
 
-func mergeDomains(path string, domains []string) (int, error) {
-	seen := map[string]bool{}
+func replaceManagedDomains(path string, domains []string) error {
 	var lines []string
+	inManagedBlock := false
 
 	if data, err := os.ReadFile(path); err == nil {
 		scanner := bufio.NewScanner(strings.NewReader(string(data)))
 		for scanner.Scan() {
 			line := scanner.Text()
 			trimmed := strings.TrimSpace(line)
-			if normalized := normalizeDomain(trimmed); normalized != "" && !strings.HasPrefix(trimmed, "#") {
-				seen[normalized] = true
+			switch trimmed {
+			case managedStart:
+				inManagedBlock = true
+				continue
+			case managedEnd:
+				inManagedBlock = false
+				continue
 			}
-			lines = append(lines, line)
+			if !inManagedBlock {
+				lines = append(lines, line)
+			}
 		}
 		if err := scanner.Err(); err != nil {
-			return 0, err
+			return err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return 0, err
+		return err
 	}
 
-	added := 0
-	for _, domain := range domains {
-		if seen[domain] {
-			continue
-		}
-		lines = append(lines, domain)
-		seen[domain] = true
-		added++
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
 	}
-	if len(lines) == 0 {
-		lines = append(lines, "# Explicit domains managed by sieve")
+	if len(domains) > 0 {
+		if len(lines) > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, managedStart)
+		lines = append(lines, domains...)
+		lines = append(lines, managedEnd)
 	}
 
 	payload := strings.Join(lines, "\n")
-	if !strings.HasSuffix(payload, "\n") {
+	if payload != "" && !strings.HasSuffix(payload, "\n") {
 		payload += "\n"
 	}
 
-	return added, os.WriteFile(path, []byte(payload), 0o644)
+	return os.WriteFile(path, []byte(payload), 0o644)
 }

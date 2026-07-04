@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/elev1e1nSure/sieve/internal/cache"
 	"github.com/elev1e1nSure/sieve/internal/configs"
 	"github.com/elev1e1nSure/sieve/internal/envpath"
+	"github.com/elev1e1nSure/sieve/internal/maintenance"
 	"github.com/elev1e1nSure/sieve/internal/runner"
 	"github.com/elev1e1nSure/sieve/internal/selfupdate"
 	"github.com/elev1e1nSure/sieve/internal/settings"
@@ -133,21 +133,11 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 			return nil
 		}
 
-		manager := assets.NewManager()
-		result, err := runner.StopAll(filepath.Join(manager.BinDir(), "winws.exe"))
+		report, err := maintenance.NewService().Stop()
 		if err != nil {
-			return fmt.Errorf("sieve could not stop cleanly: %w", err)
+			return err
 		}
-		switch {
-		case result.Forced:
-			fmt.Println(warn("sieve did not respond and was force-stopped"))
-		case result.Active:
-			fmt.Println(ok("sieve stopped cleanly"))
-		case result.Legacy:
-			fmt.Println(warn("stopped leftover sieve processes"))
-		default:
-			fmt.Println(ok("sieve is not running"))
-		}
+		printMaintenanceReport(report)
 		return nil
 	}
 	if opts.update {
@@ -182,30 +172,26 @@ func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) err
 	}
 
 	if opts.resetCache {
-		cacheStore := cache.NewStore()
-		if err := cacheStore.Reset(); err != nil {
-			return fmt.Errorf("failed to reset cache: %w", err)
+		report, err := maintenance.NewService().ResetCache()
+		if err != nil {
+			return err
 		}
-		fmt.Println(ok("cache reset"))
+		printMaintenanceReport(report)
 	}
 
-	manager := assets.NewManager()
+	service := maintenance.NewService()
 	if opts.updateIPSet {
-		info, err := ensureAssetsQuiet(ctx, manager)
+		report, err := service.UpdateIPSet(ctx)
 		if err != nil {
 			return err
 		}
-		report, err := settings.UpdateIPSet(ctx, info.ListsDir)
-		if err != nil {
-			return err
-		}
-		printListReport("IPSet", report)
+		printMaintenanceReport(report)
 	}
 	if opts.diagnostics {
-		printDiagnostics("Diagnostics", settings.RunDiagnostics(manager.BinDir(), opts.fix))
+		printMaintenanceReport(service.Diagnostics(opts.fix))
 	}
 	if opts.clearDiscordCache {
-		printDiagnostics("Discord Cache", settings.ClearDiscordCache())
+		printMaintenanceReport(service.ClearDiscordCache())
 	}
 	if opts.update {
 		return runSelfUpdate(ctx, false)
@@ -222,6 +208,33 @@ func runApp(ctx context.Context) (runErr error) {
 		}
 		return nil
 	}
+
+	store := settings.NewStore()
+	runtime, err := store.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load settings: %w", err)
+	}
+	if err := runtime.Validate(); err != nil {
+		return err
+	}
+
+	launcherProgram := tea.NewProgram(
+		ui.NewLauncher(ctx, store, runtime, maintenance.NewService()),
+		tea.WithAltScreen(),
+	)
+	finalLauncher, err := launcherProgram.Run()
+	if err != nil {
+		return fmt.Errorf("failed to run launcher TUI: %w", err)
+	}
+	launcher, ok := finalLauncher.(ui.LauncherModel)
+	if !ok || launcher.Choice() != ui.LauncherRun {
+		return nil
+	}
+
+	return runSieve(ctx)
+}
+
+func runSieve(ctx context.Context) (runErr error) {
 
 	startupNotices := make([]string, 0, 6)
 
@@ -362,15 +375,6 @@ func printPendingUpdateFailure() {
 	}
 }
 
-func ensureAssetsQuiet(ctx context.Context, manager assets.Manager) (assets.Info, error) {
-	info, err := manager.Ensure(ctx, func(assets.Progress) {})
-	if err != nil {
-		return assets.Info{}, err
-	}
-
-	return info, nil
-}
-
 func applyRuntimeFlags(flags *pflag.FlagSet, dst *settings.RuntimeOptions, values settings.RuntimeOptions) error {
 	if flags.Changed("test-timeout") {
 		if values.TestTimeout <= 0 {
@@ -402,19 +406,7 @@ func applyRuntimeFlags(flags *pflag.FlagSet, dst *settings.RuntimeOptions, value
 }
 
 func validateSettings(opts settings.RuntimeOptions) error {
-	switch strings.ToLower(strings.TrimSpace(opts.IPSetMode)) {
-	case "", settings.IPSetLoaded, settings.IPSetNone, settings.IPSetAny:
-	default:
-		return fmt.Errorf("invalid --ipset %q: use loaded, none, or any", opts.IPSetMode)
-	}
-
-	switch strings.ToLower(strings.TrimSpace(opts.GameMode)) {
-	case "", settings.GameOff, settings.GameAll, settings.GameTCP, settings.GameUDP:
-	default:
-		return fmt.Errorf("invalid --game %q: use off, all, tcp, or udp", opts.GameMode)
-	}
-
-	return nil
+	return opts.Normalized().Validate()
 }
 
 func hasChangedFlags(flags *pflag.FlagSet) bool {
@@ -493,15 +485,8 @@ func printSavedRuntime(opts settings.RuntimeOptions) {
 	printRows(rows)
 }
 
-func printListReport(title string, report settings.ListReport) {
-	fmt.Println(section(title))
-	for _, item := range report.Items {
-		fmt.Println(dotStyle.Render("·") + "  " + mutedStyle.Render(item.Kind) + "  " + item.Message)
-	}
-}
-
-func printDiagnostics(title string, report settings.DiagnosticsReport) {
-	fmt.Println(section(title))
+func printMaintenanceReport(report maintenance.Report) {
+	fmt.Println(section(report.Title))
 	width := 0
 	for _, item := range report.Items {
 		width = max(width, len(item.Name))
