@@ -2,6 +2,8 @@ package selfupdate
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -85,7 +87,7 @@ func (u Updater) Update(ctx context.Context, restart bool) (Result, error) {
 		return Result{}, err
 	}
 
-	if err := replaceCurrentExecutable(exe, tmp, latest.TagName, restart); err != nil {
+	if err := installUpdate(exe, tmp, restart); err != nil {
 		os.Remove(tmp)
 		return Result{}, err
 	}
@@ -223,14 +225,53 @@ func (r release) compatibleAsset() (releaseAsset, bool) {
 }
 
 func currentVersion() string {
-	if installed := verifiedInstalledVersion(); installed != "" {
-		return installed
-	}
 	if version.IsRelease() {
 		return version.Version
 	}
 
 	return ""
+}
+
+// fileHash returns the SHA-256 of a file, used to verify a freshly written
+// executable matches the bytes that were downloaded.
+func fileHash(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// copyFile writes src over dst, creating or truncating dst. It keeps the
+// executable bit so the installed binary stays runnable on non-Windows hosts.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+
+	return out.Close()
 }
 
 func isCurrent(latest string) bool {

@@ -116,8 +116,6 @@ func applyStyledTemplates(root *cobra.Command) {
 }
 
 func runCommandMode(ctx context.Context, flags *pflag.FlagSet, opts options) error {
-	printPendingUpdateFailure()
-
 	if opts.fix && !opts.diagnostics {
 		return fmt.Errorf("--fix only works together with --diagnostics")
 	}
@@ -209,6 +207,8 @@ func runApp(ctx context.Context) (runErr error) {
 		return nil
 	}
 
+	selfupdate.CleanupStale()
+
 	store := settings.NewStore()
 	runtime, err := store.Load()
 	if err != nil {
@@ -216,6 +216,16 @@ func runApp(ctx context.Context) (runErr error) {
 	}
 	if err := runtime.Validate(); err != nil {
 		return err
+	}
+
+	// Self-update runs before the TUI: a plain `sieve` checks for a newer
+	// release up front, in this console. A successful update installs in place
+	// and relaunches into the same console, so this process just exits.
+	var startupNotices []string
+	if updated, err := autoUpdate(ctx); updated {
+		return nil
+	} else if err != nil {
+		startupNotices = append(startupNotices, "update check skipped: "+err.Error())
 	}
 
 	launcherProgram := tea.NewProgram(
@@ -231,28 +241,10 @@ func runApp(ctx context.Context) (runErr error) {
 		return nil
 	}
 
-	return runSieve(ctx)
+	return runSieve(ctx, startupNotices)
 }
 
-func runSieve(ctx context.Context) (runErr error) {
-
-	startupNotices := make([]string, 0, 6)
-
-	updateFailure, updateStateErr := selfupdate.ConsumeFailure()
-	if updateStateErr != nil {
-		startupNotices = append(startupNotices, "update status unavailable: "+updateStateErr.Error())
-	}
-	if updateFailure != "" {
-		startupNotices = append(startupNotices, updateFailure)
-	}
-	if updateStateErr == nil && updateFailure == "" {
-		if updated, err := autoUpdate(ctx); updated {
-			return nil
-		} else if err != nil {
-			startupNotices = append(startupNotices, "update check skipped: "+err.Error())
-		}
-	}
-
+func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 	session, err := runner.BeginSession()
 	if err != nil {
 		return err
@@ -322,7 +314,9 @@ func autoUpdate(ctx context.Context) (updated bool, err error) {
 		return false, nil
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	// Bounds the release check plus the binary download that runs before the
+	// TUI; the updater's own HTTP client (30s) is the tighter real-world limit.
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	result, err := selfupdate.New().Update(ctx, true)
@@ -362,17 +356,6 @@ func runSelfUpdate(ctx context.Context, restart bool) error {
 	}
 
 	return nil
-}
-
-func printPendingUpdateFailure() {
-	message, err := selfupdate.ConsumeFailure()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, warn("update status unavailable")+"  "+err.Error())
-		return
-	}
-	if message != "" {
-		fmt.Fprintln(os.Stderr, warn("previous update failed")+"  "+message)
-	}
 }
 
 func applyRuntimeFlags(flags *pflag.FlagSet, dst *settings.RuntimeOptions, values settings.RuntimeOptions) error {

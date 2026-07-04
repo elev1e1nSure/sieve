@@ -3,256 +3,96 @@
 package selfupdate
 
 import (
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"syscall"
-	"time"
 
 	"golang.org/x/sys/windows"
 )
 
-const (
-	helperFlag       = "--sieve-update-helper"
-	parentWait       = 30 * time.Second
-	replacementWait  = 30 * time.Second
-	replacementDelay = 250 * time.Millisecond
-)
-
-func replaceCurrentExecutable(exe, replacement, version string, restart bool) error {
-	helper, err := copyHelper(exe)
-	if err != nil {
-		return fmt.Errorf("create update helper: %w", err)
-	}
-
-	if err := clearUpdateState(); err != nil {
-		os.Remove(helper)
-		return fmt.Errorf("clear previous update state: %w", err)
-	}
-
-	cmd := exec.Command(
-		helper,
-		helperFlag,
-		strconv.Itoa(os.Getpid()),
-		exe,
-		replacement,
-		version,
-		strconv.FormatBool(restart),
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		CreationFlags: windows.CREATE_NO_WINDOW,
-		HideWindow:    true,
-	}
-	if err := cmd.Start(); err != nil {
-		os.Remove(helper)
-		return fmt.Errorf("start update helper: %w", err)
-	}
-	_ = cmd.Process.Release()
-
-	return nil
-}
-
-func copyHelper(exe string) (string, error) {
-	source, err := os.Open(exe)
-	if err != nil {
-		return "", err
-	}
-	defer source.Close()
-
-	helper, err := os.CreateTemp("", "sieve-updater-*.exe")
-	if err != nil {
-		return "", err
-	}
-	helperPath := helper.Name()
-	clean := func() {
-		helper.Close()
-		os.Remove(helperPath)
-	}
-
-	if _, err := io.Copy(helper, source); err != nil {
-		clean()
-		return "", err
-	}
-	if err := helper.Sync(); err != nil {
-		clean()
-		return "", err
-	}
-	if err := helper.Close(); err != nil {
-		os.Remove(helperPath)
-		return "", err
-	}
-
-	return helperPath, nil
-}
-
-func RunHelper(args []string) (int, bool) {
-	if len(args) == 0 || args[0] != helperFlag {
-		return 0, false
-	}
-	if len(args) != 6 {
-		return 1, true
-	}
-
-	parentPID, err := strconv.ParseUint(args[1], 10, 32)
-	if err != nil {
-		return 1, true
-	}
-	restart, err := strconv.ParseBool(args[5])
-	if err != nil {
-		return 1, true
-	}
-
-	err = applyUpdate(uint32(parentPID), args[2], args[3], args[4], restart)
-	if err != nil {
-		_ = writeUpdateFailure(args[4], err)
-		_ = os.Remove(args[3])
-		scheduleSelfDelete()
-		return 1, true
-	}
-
-	_ = os.Remove(args[3])
-	scheduleSelfDelete()
-	return 0, true
-}
-
-func applyUpdate(parentPID uint32, target, replacement, version string, restart bool) error {
-	expectedHash, err := fileHash(replacement)
+// installUpdate swaps the running executable in place and, when restart is set,
+// relaunches sieve in the SAME console so the update finishes before the TUI.
+//
+// Windows lets a running image be renamed but not overwritten, so the current
+// exe is moved aside, the new bytes are copied into its path, and the result is
+// verified against the downloaded hash. Everything runs in the foreground; there
+// is no hidden helper process and no stray console window.
+func installUpdate(exe, downloaded string, restart bool) error {
+	expected, err := fileHash(downloaded)
 	if err != nil {
 		return fmt.Errorf("hash downloaded executable: %w", err)
 	}
-	if err := waitForProcess(parentPID, parentWait); err != nil {
-		return err
-	}
-	if err := replaceWithRetry(replacement, target, replacementWait); err != nil {
-		return err
+
+	backup := exe + ".old"
+	_ = os.Remove(backup) // clear a leftover from a previous update
+	if err := os.Rename(exe, backup); err != nil {
+		return fmt.Errorf("move current executable aside: %w", err)
 	}
 
-	installedHash, err := fileHash(target)
+	if err := copyFile(downloaded, exe); err != nil {
+		// Restore the original so the user is never left without a binary.
+		if restoreErr := os.Rename(backup, exe); restoreErr != nil {
+			return fmt.Errorf("install update: %w (and restore failed: %v)", err, restoreErr)
+		}
+		return fmt.Errorf("install update: %w", err)
+	}
+	_ = os.Remove(downloaded)
+
+	installed, err := fileHash(exe)
 	if err != nil {
 		return fmt.Errorf("verify installed executable: %w", err)
 	}
-	if installedHash != expectedHash {
+	if installed != expected {
 		return fmt.Errorf("installed executable hash mismatch")
 	}
-	if err := writeUpdateSuccess(version, installedHash); err != nil {
-		return fmt.Errorf("save update receipt: %w", err)
-	}
+
+	scheduleBackupCleanup(backup)
+
 	if !restart {
 		return nil
 	}
 
-	cmd := exec.Command(target)
-	cmd.Dir = filepath.Dir(target)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_CONSOLE}
+	return relaunch(exe)
+}
+
+// relaunch starts the freshly installed binary attached to the current console
+// (real std handles, no CREATE_NEW_CONSOLE), so the child renders normally while
+// this process exits. The child inherits the elevated token, so no second UAC.
+func relaunch(exe string) error {
+	cmd := exec.Command(exe)
+	cmd.Dir = filepath.Dir(exe)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("restart sieve: %w", err)
+		return fmt.Errorf("relaunch sieve: %w", err)
 	}
-	_ = cmd.Process.Release()
 
-	return nil
+	return cmd.Process.Release()
 }
 
-func waitForProcess(pid uint32, timeout time.Duration) error {
-	process, err := windows.OpenProcess(windows.SYNCHRONIZE, false, pid)
-	if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("open parent process: %w", err)
-	}
-	defer windows.CloseHandle(process)
-
-	result, err := windows.WaitForSingleObject(process, uint32(timeout/time.Millisecond))
-	if err != nil {
-		return fmt.Errorf("wait for parent process: %w", err)
-	}
-	if result != windows.WAIT_OBJECT_0 {
-		return fmt.Errorf("parent process did not exit within %s", timeout)
-	}
-
-	return nil
-}
-
-func replaceWithRetry(replacement, target string, timeout time.Duration) error {
-	staged, err := stageReplacement(replacement, target)
-	if err != nil {
-		return fmt.Errorf("stage replacement: %w", err)
-	}
-	defer os.Remove(staged)
-
-	from, err := windows.UTF16PtrFromString(staged)
-	if err != nil {
-		return err
-	}
-	to, err := windows.UTF16PtrFromString(target)
-	if err != nil {
-		return err
-	}
-
-	deadline := time.Now().Add(timeout)
-	var replaceErr error
-	for {
-		replaceErr = windows.MoveFileEx(
-			from,
-			to,
-			windows.MOVEFILE_REPLACE_EXISTING|windows.MOVEFILE_WRITE_THROUGH,
-		)
-		if replaceErr == nil {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("replace executable within %s: %w", timeout, replaceErr)
-		}
-		time.Sleep(replacementDelay)
-	}
-}
-
-func stageReplacement(replacement, target string) (string, error) {
-	source, err := os.Open(replacement)
-	if err != nil {
-		return "", err
-	}
-	defer source.Close()
-
-	staged, err := os.CreateTemp(filepath.Dir(target), ".sieve-update-*.exe")
-	if err != nil {
-		return "", err
-	}
-	stagedPath := staged.Name()
-	clean := func() {
-		staged.Close()
-		os.Remove(stagedPath)
-	}
-
-	if _, err := io.Copy(staged, source); err != nil {
-		clean()
-		return "", err
-	}
-	if err := staged.Sync(); err != nil {
-		clean()
-		return "", err
-	}
-	if err := staged.Close(); err != nil {
-		os.Remove(stagedPath)
-		return "", err
-	}
-	_ = os.Remove(replacement)
-
-	return stagedPath, nil
-}
-
-func scheduleSelfDelete() {
-	helper, err := os.Executable()
-	if err != nil {
-		return
-	}
-	path, err := windows.UTF16PtrFromString(helper)
+// scheduleBackupCleanup removes the old image. It is still mapped by this running
+// process and cannot be deleted now, so removal is deferred to reboot; the next
+// start also best-effort deletes it earlier via CleanupStale.
+func scheduleBackupCleanup(backup string) {
+	path, err := windows.UTF16PtrFromString(backup)
 	if err != nil {
 		return
 	}
 	_ = windows.MoveFileEx(path, nil, windows.MOVEFILE_DELAY_UNTIL_REBOOT)
+}
+
+// CleanupStale removes a leftover ".old" backup from a previous update. By the
+// next start the old process has exited, so the file is no longer in use.
+func CleanupStale() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	exe, err = filepath.Abs(exe)
+	if err != nil {
+		return
+	}
+	_ = os.Remove(exe + ".old")
 }
