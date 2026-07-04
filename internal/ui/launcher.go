@@ -49,7 +49,6 @@ const (
 const (
 	rowTimeout = iota
 	rowCache
-	rowPath
 	rowIPSet
 	rowDomains
 	rowDomainFiles
@@ -243,7 +242,7 @@ func (m *LauncherModel) activateRow() (tea.Model, tea.Cmd) {
 	case rowTimeout, rowDomains, rowDomainFiles:
 		m.openEditor(m.rowCursor)
 		return *m, textinput.Blink
-	case rowCache, rowPath, rowIPSet, rowGame:
+	case rowCache, rowIPSet, rowGame:
 		m.changeSetting(1)
 		return *m, m.persistDraft()
 	default:
@@ -296,8 +295,6 @@ func (m *LauncherModel) changeSetting(direction int) {
 	switch m.rowCursor {
 	case rowCache:
 		m.draft.NoCache = !m.draft.NoCache
-	case rowPath:
-		m.draft.NoAddPath = !m.draft.NoAddPath
 	case rowIPSet:
 		values := []string{settings.IPSetUnchanged, settings.IPSetLoaded, settings.IPSetNone, settings.IPSetAny}
 		m.draft.IPSetMode = cycle(values, m.draft.IPSetMode, direction)
@@ -384,7 +381,6 @@ func (m LauncherModel) settingsView() string {
 	rows := []struct{ label, value string }{
 		{"Test timeout", fmt.Sprintf("%d seconds", m.draft.TestTimeout)},
 		{"Config cache", enabled(!m.draft.NoCache)},
-		{"Add to PATH", enabled(!m.draft.NoAddPath)},
 		{"IPSet mode", fallback(m.draft.IPSetMode, "unchanged")},
 		{"Domains", listSummary(m.draft.Domains)},
 		{"Domain files", listSummary(m.draft.DomainFiles)},

@@ -17,7 +17,6 @@ import (
 	"github.com/elev1e1nSure/sieve/internal/assets"
 	"github.com/elev1e1nSure/sieve/internal/cache"
 	"github.com/elev1e1nSure/sieve/internal/configs"
-	"github.com/elev1e1nSure/sieve/internal/envpath"
 	"github.com/elev1e1nSure/sieve/internal/maintenance"
 	"github.com/elev1e1nSure/sieve/internal/runner"
 	"github.com/elev1e1nSure/sieve/internal/selfupdate"
@@ -70,7 +69,6 @@ func Execute() {
 	flags.IntVar(&opts.runtime.TestTimeout, "test-timeout", 0, "save connection test timeout in seconds")
 	flags.BoolVar(&opts.resetCache, "reset-cache", false, "delete cached config results and exit")
 	flags.BoolVar(&opts.runtime.NoCache, "no-cache", false, "save config cache disabled/enabled")
-	flags.BoolVar(&opts.runtime.NoAddPath, "no-add-path", false, "save PATH auto-add disabled/enabled")
 	flags.StringVar(&opts.runtime.IPSetMode, "ipset", settings.IPSetUnchanged, "save ipset mode: loaded, none, any")
 	flags.BoolVar(&opts.updateIPSet, "update-ipset", false, "download the latest Flowseal ipset list and exit")
 	flags.StringSliceVar(&opts.runtime.Domains, "domain", nil, "save explicit domain(s); can be repeated or comma-separated")
@@ -265,11 +263,6 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 		return err
 	}
 
-	if !runtime.NoAddPath {
-		result, err := envpath.EnsureExecutableDir()
-		startupNotices = appendPathNotice(startupNotices, result, err)
-	}
-
 	cacheStore := cache.NewStore()
 	if runtime.NoCache {
 		cacheStore.Disabled = true
@@ -368,9 +361,6 @@ func applyRuntimeFlags(flags *pflag.FlagSet, dst *settings.RuntimeOptions, value
 	if flags.Changed("no-cache") {
 		dst.NoCache = values.NoCache
 	}
-	if flags.Changed("no-add-path") {
-		dst.NoAddPath = values.NoAddPath
-	}
 	if flags.Changed("ipset") {
 		dst.IPSetMode = values.IPSetMode
 	}
@@ -410,7 +400,7 @@ func changedFlagCount(flags *pflag.FlagSet) int {
 }
 
 func runtimeFlagsChanged(flags *pflag.FlagSet) bool {
-	for _, name := range []string{"test-timeout", "no-cache", "no-add-path", "ipset", "domain", "domain-file", "game"} {
+	for _, name := range []string{"test-timeout", "no-cache", "ipset", "domain", "domain-file", "game"} {
 		if flags.Changed(name) {
 			return true
 		}
@@ -434,28 +424,10 @@ func appendUnique(current []string, incoming ...string) []string {
 	return out
 }
 
-func appendPathNotice(notices []string, result envpath.Result, err error) []string {
-	if err != nil {
-		return append(notices, fmt.Sprintf("PATH update failed: %v", err))
-	}
-
-	switch {
-	case result.Added:
-		return append(notices, fmt.Sprintf("added %s to user PATH; open a new terminal", result.Dir))
-	case result.AlreadyPresent:
-		return append(notices, fmt.Sprintf("user PATH already contains %s", result.Dir))
-	case result.Skipped && result.Reason != "":
-		return append(notices, "PATH skipped: "+result.Reason)
-	default:
-		return notices
-	}
-}
-
 func printSavedRuntime(opts settings.RuntimeOptions) {
 	rows := [][2]string{
 		{"test-timeout", fmt.Sprintf("%ds", opts.TestTimeout)},
 		{"cache", boolStatus(!opts.NoCache)},
-		{"PATH auto-add", boolStatus(!opts.NoAddPath)},
 		{"ipset", fallback(opts.IPSetMode, "unchanged")},
 		{"game", fallback(opts.GameMode, settings.GameOff)},
 	}

@@ -21,7 +21,6 @@ const (
 type RuntimeOptions struct {
 	TestTimeout int      `json:"test_timeout"`
 	NoCache     bool     `json:"no_cache"`
-	NoAddPath   bool     `json:"no_add_path"`
 	IPSetMode   string   `json:"ipset_mode,omitempty"`
 	Domains     []string `json:"domains,omitempty"`
 	DomainFiles []string `json:"domain_files,omitempty"`
