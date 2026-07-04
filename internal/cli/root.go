@@ -22,6 +22,7 @@ import (
 	"github.com/elev1e1nSure/sieve/internal/selfupdate"
 	"github.com/elev1e1nSure/sieve/internal/settings"
 	"github.com/elev1e1nSure/sieve/internal/tester"
+	"github.com/elev1e1nSure/sieve/internal/tray"
 	"github.com/elev1e1nSure/sieve/internal/ui"
 	"github.com/elev1e1nSure/sieve/internal/version"
 )
@@ -269,6 +270,31 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 		startupNotices = append(startupNotices, "cache disabled")
 	}
 
+	// Build tray manager only when the console belongs to sieve itself
+	// (double-click / Start-Process). When running inside PowerShell or
+	// cmd.exe we leave trayMgr nil so the UI never shows the hint.
+	var trayMgr *tray.Manager
+	var programRef *tea.Program // set after program is created, read by tray callbacks
+	if tray.IsAvailable() {
+		onRestore := func() {
+			// Called from the tray's event-loop goroutine.
+			// Restore() shows the console; TrayRestoreMsg triggers repaint.
+			if trayMgr != nil {
+				trayMgr.Restore()
+			}
+			if programRef != nil {
+				programRef.Send(ui.TrayRestoreMsg{})
+			}
+		}
+		onQuit := func() {
+			if programRef != nil {
+				programRef.Send(ui.StopRequestedMsg{})
+			}
+		}
+		trayMgr = tray.New(onRestore, onQuit)
+		defer trayMgr.Stop()
+	}
+
 	app := ui.App{
 		Assets:         assets.NewManager(),
 		Cache:          &cacheStore,
@@ -277,9 +303,15 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 		Tester:         tester.New(time.Duration(runtime.TestTimeout) * time.Second),
 		StartupNotices: startupNotices,
 		Settings:       runtime,
+		Tray:           trayMgr,
 	}
 
 	program := tea.NewProgram(ui.NewModel(app))
+	// Wire the program reference so tray callbacks can deliver messages.
+	// Tray callbacks only fire after program.Run() has started, so there
+	// is no data race here.
+	programRef = program
+
 	go func() {
 		<-session.StopRequested()
 		program.Send(ui.StopRequestedMsg{})
@@ -294,6 +326,7 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 
 	return nil
 }
+
 
 func autoUpdate(ctx context.Context) (updated bool, err error) {
 	defer func() {

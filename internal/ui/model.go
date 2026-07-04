@@ -15,6 +15,7 @@ import (
 	"github.com/elev1e1nSure/sieve/internal/runner"
 	"github.com/elev1e1nSure/sieve/internal/settings"
 	"github.com/elev1e1nSure/sieve/internal/tester"
+	"github.com/elev1e1nSure/sieve/internal/tray"
 )
 
 const winwsReadinessTimeout = 1500 * time.Millisecond
@@ -39,6 +40,9 @@ type App struct {
 	Tester         tester.ConnectivityTester
 	StartupNotices []string
 	Settings       settings.RuntimeOptions
+	// Tray is optional. When non-nil and tray.IsAvailable() was true,
+	// pressing T while running minimises to the system tray.
+	Tray           *tray.Manager
 }
 
 type Model struct {
@@ -108,6 +112,10 @@ type cleanupDoneMsg struct {
 
 type StopRequestedMsg struct{}
 
+// TrayRestoreMsg is sent by the tray callback when the user clicks
+// "Открыть" in the notification-area context menu.
+type TrayRestoreMsg struct{}
+
 func NewModel(app App) Model {
 	vp := viewport.New(80, 12)
 	vp.SetContent("warming up the sieve.")
@@ -152,6 +160,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ui.rawLogMode = !m.ui.rawLogMode
 			m.refreshBody()
 			return m, nil
+		case "t":
+			// Minimise to tray only when winws is actively running and
+			// a tray manager is available (own console, not PowerShell).
+			if m.ui.state == StateRunning && m.app.Tray != nil {
+				m.app.Tray.Show()
+				return m, nil
+			}
 		}
 	case tea.WindowSizeMsg:
 		m.ui.viewport.Width = max(1, msg.Width-4)
@@ -179,6 +194,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitForFlowUpdate(m.flow.flowC)
 	case StopRequestedMsg:
 		return m.beginShutdown("stopped by --stop", nil)
+	case TrayRestoreMsg:
+		// Console window has already been shown by the tray callback;
+		// ask BubbleTea to repaint the whole screen.
+		return m, tea.ClearScreen
 	case cleanupDoneMsg:
 		m.ui.exitErr = errors.Join(m.ui.exitErr, msg.err)
 		m.ui.state = StateBye

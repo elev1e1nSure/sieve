@@ -164,12 +164,19 @@ func (m Model) footer() string {
 
 	sep := mutedStyle.Render(" · ")
 
-	return lipgloss.JoinHorizontal(
-		lipgloss.Center,
+	parts := []string{
 		hint("ctrl+c", "quit"),
 		sep,
 		hint("ctrl+o", logMode),
-	)
+	}
+
+	// Show the tray hint only while winws is actively running and the
+	// tray manager is wired up (i.e. we own our console window).
+	if m.ui.state == StateRunning && m.app.Tray != nil {
+		parts = append(parts, sep, hint("t", "tray"))
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Center, parts...)
 }
 
 func (m Model) stateBadge() string {
