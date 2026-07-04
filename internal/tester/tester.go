@@ -34,17 +34,41 @@ func New(timeout time.Duration) Tester {
 		timeout = defaultTimeout
 	}
 
-	return Tester{
-		Timeout: timeout,
-		Client: &http.Client{
-			Timeout: timeout,
-		},
-	}
+	return Tester{Timeout: timeout}
 }
 
 func (t Tester) Test(ctx context.Context) TestResult {
-	discordOK, discordErr := t.check(ctx, discordURL)
-	youtubeOK, youtubeErr := t.check(ctx, youtubeURL)
+	client, closeClient := t.client()
+	defer closeClient()
+
+	type checkResult struct {
+		discord bool
+		ok      bool
+		err     error
+	}
+
+	results := make(chan checkResult, 2)
+	go func() {
+		ok, err := t.check(ctx, client, discordURL)
+		results <- checkResult{discord: true, ok: ok, err: err}
+	}()
+	go func() {
+		ok, err := t.check(ctx, client, youtubeURL)
+		results <- checkResult{ok: ok, err: err}
+	}()
+
+	var discordOK, youtubeOK bool
+	var discordErr, youtubeErr error
+	for range 2 {
+		result := <-results
+		if result.discord {
+			discordOK = result.ok
+			discordErr = result.err
+		} else {
+			youtubeOK = result.ok
+			youtubeErr = result.err
+		}
+	}
 
 	return TestResult{
 		Discord: discordOK,
@@ -53,19 +77,21 @@ func (t Tester) Test(ctx context.Context) TestResult {
 	}
 }
 
-func (t Tester) check(ctx context.Context, url string) (bool, error) {
+func (t Tester) check(ctx context.Context, client *http.Client, url string) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false, err
 	}
 	req.Header.Set("User-Agent", "sieve")
 
-	resp, err := t.client().Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return false, err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		return false, fmt.Errorf("read %s response: %w", url, err)
+	}
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
 		return true, nil
@@ -74,12 +100,15 @@ func (t Tester) check(ctx context.Context, url string) (bool, error) {
 	return false, fmt.Errorf("%s returned %s", url, resp.Status)
 }
 
-func (t Tester) client() *http.Client {
+func (t Tester) client() (*http.Client, func()) {
 	if t.Client != nil {
-		return t.Client
+		return t.Client, func() {}
 	}
 
-	return &http.Client{Timeout: t.Timeout}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableKeepAlives = true
+	client := &http.Client{Timeout: t.Timeout, Transport: transport}
+	return client, transport.CloseIdleConnections
 }
 
 func joinErrors(discordErr, youtubeErr error) error {

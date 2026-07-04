@@ -28,6 +28,11 @@ type Flow struct {
 	Ctx      context.Context
 }
 
+const (
+	winwsReadyMarker          = "windivert initialized"
+	candidateValidationPasses = 2
+)
+
 func (f Flow) Run(updates chan<- flowUpdateMsg) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -79,14 +84,46 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 			continue
 		}
 
-		if !sleepContext(f.Ctx, winwsWarmup) {
+		startupOutput, err := waitForProcessReady(f.Ctx, process, winwsReadinessTimeout)
+		if errors.Is(err, context.Canceled) {
 			_ = f.Runner.Stop()
 			updates <- flowUpdateMsg{kind: flowDone, done: true}
 			return
 		}
+		if err != nil {
+			if stopErr := f.Runner.Stop(); stopErr != nil {
+				err = errors.Join(err, stopErr)
+			}
+			updates <- flowUpdateMsg{kind: flowNoLuck, err: withProcessOutput(err, startupOutput), done: true}
+			return
+		}
 
-		result := f.Tester.Test(f.Ctx)
-		ok := result.Discord && result.YouTube && result.Err == nil
+		ok := true
+		var testErr error
+		for range candidateValidationPasses {
+			result, err := f.testProcess(process)
+			if err != nil {
+				testErr = err
+				ok = false
+				break
+			}
+			if !result.Discord || !result.YouTube || result.Err != nil {
+				ok = false
+				break
+			}
+		}
+		if errors.Is(testErr, context.Canceled) {
+			_ = f.Runner.Stop()
+			updates <- flowUpdateMsg{kind: flowDone, done: true}
+			return
+		}
+		if testErr != nil {
+			if stopErr := f.Runner.Stop(); stopErr != nil {
+				testErr = errors.Join(testErr, stopErr)
+			}
+			updates <- flowUpdateMsg{kind: flowNoLuck, err: withProcessOutput(testErr, startupOutput), done: true}
+			return
+		}
 		if err := store.RecordResult(config.Name, ok, time.Now()); err != nil {
 			_ = f.Runner.Stop()
 			updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
@@ -94,6 +131,9 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		}
 		if ok {
 			updates <- flowUpdateMsg{kind: flowRunning, currentConfig: config.Name, process: process}
+			for _, line := range startupOutput {
+				updates <- flowUpdateMsg{kind: flowLog, log: line}
+			}
 			recentOutput := make([]string, 0, 3)
 			for {
 				select {
@@ -135,6 +175,61 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		return
 	}
 	updates <- flowUpdateMsg{kind: flowNoLuck, done: true}
+}
+
+func (f Flow) testProcess(process *runner.Process) (tester.TestResult, error) {
+	ctx, cancel := context.WithCancel(f.Ctx)
+	defer cancel()
+
+	results := make(chan tester.TestResult, 1)
+	go func() {
+		results <- f.Tester.Test(ctx)
+	}()
+
+	select {
+	case result := <-results:
+		select {
+		case <-process.Done():
+			return tester.TestResult{}, processExitError(process)
+		default:
+			return result, nil
+		}
+	case <-process.Done():
+		return tester.TestResult{}, processExitError(process)
+	case <-f.Ctx.Done():
+		return tester.TestResult{}, f.Ctx.Err()
+	}
+}
+
+func waitForProcessReady(ctx context.Context, process *runner.Process, timeout time.Duration) ([]string, error) {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	output := make([]string, 0, 8)
+	for {
+		select {
+		case line, more := <-process.Logs():
+			if !more {
+				return output, processExitError(process)
+			}
+			output = append(output, line)
+			if strings.Contains(strings.ToLower(line), winwsReadyMarker) {
+				return output, nil
+			}
+		case <-timer.C:
+			return output, nil
+		case <-ctx.Done():
+			return output, ctx.Err()
+		}
+	}
+}
+
+func processExitError(process *runner.Process) error {
+	err := process.Wait()
+	if err == nil {
+		return errors.New("winws exited unexpectedly")
+	}
+	return err
 }
 
 func drainProcessOutput(process *runner.Process, limit int) []string {
@@ -289,17 +384,5 @@ func (m Model) runFlow(updates chan<- flowUpdateMsg) tea.Cmd {
 func (m Model) stopRunning() tea.Cmd {
 	return func() tea.Msg {
 		return cleanupDoneMsg{err: m.app.Runner.Stop()}
-	}
-}
-
-func sleepContext(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
 	}
 }

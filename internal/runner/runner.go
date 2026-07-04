@@ -162,6 +162,10 @@ func (p *Process) Logs() <-chan string {
 	return p.logs
 }
 
+func (p *Process) Done() <-chan struct{} {
+	return p.done
+}
+
 func (p *Process) Wait() error {
 	<-p.done
 	p.mu.Lock()

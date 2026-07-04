@@ -17,7 +17,7 @@ import (
 	"github.com/elev1e1nSure/sieve/internal/tester"
 )
 
-const winwsWarmup = 1500 * time.Millisecond
+const winwsReadinessTimeout = 1500 * time.Millisecond
 const maxLogLines = 2000
 
 type State int
