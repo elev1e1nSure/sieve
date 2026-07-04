@@ -170,9 +170,7 @@ func (m LauncherModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.page {
 	case launcherMenu:
 		switch key {
-		case "up", "k":
-			m.menuCursor = (m.menuCursor + 1) % 2
-		case "down", "j":
+		case "up", "down":
 			m.menuCursor = (m.menuCursor + 1) % 2
 		case "enter":
 			if m.menuCursor == 0 {
@@ -182,36 +180,30 @@ func (m LauncherModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.draft = m.saved
 			m.err = nil
 			m.page = launcherSettings
-		case "q", "esc":
+		case "esc":
 			return m, tea.Quit
 		}
 	case launcherSettings:
 		switch key {
-		case "up", "k":
+		case "up":
 			m.rowCursor = (m.rowCursor - 1 + settingsRowCount) % settingsRowCount
-		case "down", "j":
+		case "down":
 			m.rowCursor = (m.rowCursor + 1) % settingsRowCount
-		case "left", "h":
-			m.changeSetting(-1)
-			return m, m.persistDraft()
-		case "right", "l", " ":
-			m.changeSetting(1)
-			return m, m.persistDraft()
 		case "enter":
 			return m.activateRow()
-		case "q", "esc":
+		case "esc":
 			m.page = launcherMenu
 			m.menuCursor = 1
 		}
 	case launcherConfirm:
 		switch key {
-		case "y", "enter":
+		case "enter":
 			return m.startAction()
-		case "n", "esc", "q":
+		case "esc":
 			m.page = launcherSettings
 		}
 	case launcherResult:
-		if key == "enter" || key == "esc" || key == "q" {
+		if key == "enter" || key == "esc" {
 			m.page = launcherSettings
 			m.err = nil
 			m.report = maintenance.Report{}
@@ -233,7 +225,7 @@ func (m LauncherModel) updateEditor(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.page = launcherSettings
 			m.input.Blur()
 			return m, m.persistDraft()
-		case "esc", "ctrl+c":
+		case "esc":
 			m.err = nil
 			m.page = launcherSettings
 			m.input.Blur()
