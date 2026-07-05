@@ -1,6 +1,6 @@
 //go:build windows
 
-package settings
+package maintenance
 
 import (
 	"errors"
@@ -13,142 +13,131 @@ import (
 	"github.com/elev1e1nSure/sieve/internal/paths"
 )
 
-type DiagnosticsReport struct {
-	Items []DiagnosticItem
-}
-
-type DiagnosticItem struct {
-	Status  string
-	Name    string
-	Message string
-}
-
-func RunDiagnostics(binDir string, autoFix bool) DiagnosticsReport {
-	report := DiagnosticsReport{}
-
-	report.addItem(okIf(serviceRunning("BFE"), "Base Filtering Engine", "required Windows filtering service is running", "required Windows filtering service is not running"))
-	report.addItem(okIf(!systemProxyEnabled(), "System proxy", "system proxy is disabled", "system proxy is enabled; disable it if it is not intentional"))
-
-	if tcpTimestampsEnabled() {
-		report.add("ok", "TCP timestamps", "enabled")
-	} else if autoFix && run("netsh", "interface", "tcp", "set", "global", "timestamps=enabled") == nil {
-		report.add("fixed", "TCP timestamps", "enabled through netsh")
-	} else {
-		report.add("warn", "TCP timestamps", "disabled; run diagnostics with --fix to enable")
+func diagnosticsItems(binDir string, autoFix bool) []Item {
+	var items []Item
+	add := func(status, name, message string) {
+		items = append(items, Item{Status: status, Name: name, Message: message})
 	}
 
-	report.addItem(okIf(!processRunning("AdguardSvc.exe"), "Adguard", "process not found", "AdguardSvc.exe may conflict with Discord traffic"))
-	report.addItem(okIf(!serviceNameContains("Killer"), "Killer services", "not found", "Killer services can conflict with WinDivert"))
-	report.addItem(okIf(!intelConnectivityFound(), "Intel Connectivity", "not found", "Intel Connectivity Network Service can conflict with WinDivert"))
-	report.addItem(okIf(!checkpointFound(), "Check Point", "not found", "Check Point services can conflict with WinDivert"))
-	report.addItem(okIf(!serviceNameContains("SmartByte"), "SmartByte", "not found", "SmartByte can conflict with WinDivert"))
+	items = append(items, okIf(serviceRunning("BFE"), "Base Filtering Engine", "required Windows filtering service is running", "required Windows filtering service is not running"))
+	items = append(items, okIf(!systemProxyEnabled(), "System proxy", "system proxy is disabled", "system proxy is enabled; disable it if it is not intentional"))
+
+	if tcpTimestampsEnabled() {
+		add("ok", "TCP timestamps", "enabled")
+	} else if autoFix && run("netsh", "interface", "tcp", "set", "global", "timestamps=enabled") == nil {
+		add("fixed", "TCP timestamps", "enabled through netsh")
+	} else {
+		add("warn", "TCP timestamps", "disabled; run diagnostics with --fix to enable")
+	}
+
+	items = append(items, okIf(!processRunning("AdguardSvc.exe"), "Adguard", "process not found", "AdguardSvc.exe may conflict with Discord traffic"))
+	items = append(items, okIf(!serviceNameContains("Killer"), "Killer services", "not found", "Killer services can conflict with WinDivert"))
+	items = append(items, okIf(!intelConnectivityFound(), "Intel Connectivity", "not found", "Intel Connectivity Network Service can conflict with WinDivert"))
+	items = append(items, okIf(!checkpointFound(), "Check Point", "not found", "Check Point services can conflict with WinDivert"))
+	items = append(items, okIf(!serviceNameContains("SmartByte"), "SmartByte", "not found", "SmartByte can conflict with WinDivert"))
 
 	if matches, _ := filepath.Glob(filepath.Join(binDir, "*.sys")); len(matches) > 0 {
-		report.add("ok", "WinDivert driver", "driver file found")
+		add("ok", "WinDivert driver", "driver file found")
 	} else {
-		report.add("fail", "WinDivert driver", "WinDivert64.sys file was not found in bin")
+		add("fail", "WinDivert driver", "WinDivert64.sys file was not found in bin")
 	}
 
 	if vpn := matchingServiceNames("VPN"); len(vpn) > 0 {
-		report.add("warn", "VPN services", "found: "+strings.Join(vpn, ", "))
+		add("warn", "VPN services", "found: "+strings.Join(vpn, ", "))
 	} else {
-		report.add("ok", "VPN services", "not found")
+		add("ok", "VPN services", "not found")
 	}
 
 	if secureDNSConfigured() {
-		report.add("ok", "Secure DNS", "Windows DoH configuration found")
+		add("ok", "Secure DNS", "Windows DoH configuration found")
 	} else {
-		report.add("warn", "Secure DNS", "configure browser or Windows secure DNS if DNS blocking is suspected")
+		add("warn", "Secure DNS", "configure browser or Windows secure DNS if DNS blocking is suspected")
 	}
 
 	if hostsContainsYouTube() {
-		report.add("warn", "hosts file", "youtube.com or youtu.be entries found")
+		add("warn", "hosts file", "youtube.com or youtu.be entries found")
 	} else {
-		report.add("ok", "hosts file", "no YouTube entries found")
+		add("ok", "hosts file", "no YouTube entries found")
 	}
 
-	reportWinDivertConflict(&report, autoFix)
-	reportConflictingServices(&report, autoFix)
+	items = append(items, winDivertConflictItem(autoFix))
+	items = append(items, conflictingServiceItems(autoFix)...)
 
-	return report
+	return items
 }
 
-func Status(binDir string) DiagnosticsReport {
-	report := DiagnosticsReport{}
+func statusItems(binDir string) []Item {
+	var items []Item
 
 	if processRunning("winws.exe") {
-		report.add("ok", "winws.exe", "process is running")
+		items = append(items, Item{Status: "ok", Name: "winws.exe", Message: "process is running"})
 	} else {
-		report.add("warn", "winws.exe", "process is not running")
+		items = append(items, Item{Status: "warn", Name: "winws.exe", Message: "process is not running"})
 	}
 
 	switch {
 	case serviceRunning("WinDivert"):
-		report.add("ok", "WinDivert driver", "service is running")
+		items = append(items, Item{Status: "ok", Name: "WinDivert driver", Message: "service is running"})
 	case matchingServiceNames("WinDivert") != nil:
-		report.add("warn", "WinDivert driver", "service is installed but not running")
+		items = append(items, Item{Status: "warn", Name: "WinDivert driver", Message: "service is installed but not running"})
 	default:
-		report.add("warn", "WinDivert driver", "service is not installed")
+		items = append(items, Item{Status: "warn", Name: "WinDivert driver", Message: "service is not installed"})
 	}
 
 	if matches, _ := filepath.Glob(filepath.Join(binDir, "*.sys")); len(matches) == 0 {
-		report.add("warn", "WinDivert driver file", "not found in bin directory")
+		items = append(items, Item{Status: "warn", Name: "WinDivert driver file", Message: "not found in bin directory"})
 	}
 
-	return report
+	return items
 }
 
-func ClearDiscordCache() DiagnosticsReport {
-	report := DiagnosticsReport{}
+func clearDiscordCacheItems() []Item {
+	var items []Item
+	add := func(status, name, message string) {
+		items = append(items, Item{Status: status, Name: name, Message: message})
+	}
+
 	if processRunning("Discord.exe") {
 		if err := run("taskkill", "/IM", "Discord.exe", "/F"); err != nil {
-			report.add("fail", "Discord", "failed to close Discord.exe: "+err.Error())
+			add("fail", "Discord", "failed to close Discord.exe: "+err.Error())
 		} else {
-			report.add("fixed", "Discord", "closed Discord.exe")
+			add("fixed", "Discord", "closed Discord.exe")
 		}
 	}
 
 	appData := os.Getenv("APPDATA")
 	if strings.TrimSpace(appData) == "" {
-		report.add("fail", "Discord cache", "APPDATA is not set")
-		return report
+		add("fail", "Discord cache", "APPDATA is not set")
+		return items
 	}
 
 	base := filepath.Join(appData, "discord")
 	for _, name := range []string{"Cache", "Code Cache", "GPUCache"} {
 		path := filepath.Join(base, name)
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			report.add("warn", name, "cache directory does not exist")
+			add("warn", name, "cache directory does not exist")
 			continue
 		} else if err != nil {
-			report.add("fail", name, err.Error())
+			add("fail", name, err.Error())
 			continue
 		}
 
 		if err := os.RemoveAll(path); err != nil {
-			report.add("fail", name, "failed to delete: "+err.Error())
+			add("fail", name, "failed to delete: "+err.Error())
 		} else {
-			report.add("fixed", name, "deleted "+path)
+			add("fixed", name, "deleted "+path)
 		}
 	}
 
-	return report
+	return items
 }
 
-func (r *DiagnosticsReport) add(status, name, message string) {
-	r.Items = append(r.Items, DiagnosticItem{Status: status, Name: name, Message: message})
-}
-
-func (r *DiagnosticsReport) addItem(item DiagnosticItem) {
-	r.Items = append(r.Items, item)
-}
-
-func okIf(ok bool, name, okMessage, badMessage string) DiagnosticItem {
+func okIf(ok bool, name, okMessage, badMessage string) Item {
 	if ok {
-		return DiagnosticItem{Status: "ok", Name: name, Message: okMessage}
+		return Item{Status: "ok", Name: name, Message: okMessage}
 	}
 
-	return DiagnosticItem{Status: "warn", Name: name, Message: badMessage}
+	return Item{Status: "warn", Name: name, Message: badMessage}
 }
 
 func serviceRunning(name string) bool {
@@ -226,27 +215,25 @@ func hostsContainsYouTube() bool {
 	return strings.Contains(lower, "youtube.com") || strings.Contains(lower, "youtu.be")
 }
 
-func reportWinDivertConflict(report *DiagnosticsReport, autoFix bool) {
+func winDivertConflictItem(autoFix bool) Item {
 	if processRunning("winws.exe") || !serviceRunning("WinDivert") {
-		report.add("ok", "WinDivert", "no orphaned active service found")
-		return
+		return Item{Status: "ok", Name: "WinDivert", Message: "no orphaned active service found"}
 	}
 
 	if !autoFix {
-		report.add("warn", "WinDivert", "service is active while winws.exe is not running; run diagnostics with --fix")
-		return
+		return Item{Status: "warn", Name: "WinDivert", Message: "service is active while winws.exe is not running; run diagnostics with --fix"}
 	}
 
 	_ = run("net", "stop", "WinDivert")
 	_ = run("sc", "delete", "WinDivert")
 	if serviceRunning("WinDivert") {
-		report.add("fail", "WinDivert", "failed to remove orphaned service")
-	} else {
-		report.add("fixed", "WinDivert", "removed orphaned service")
+		return Item{Status: "fail", Name: "WinDivert", Message: "failed to remove orphaned service"}
 	}
+
+	return Item{Status: "fixed", Name: "WinDivert", Message: "removed orphaned service"}
 }
 
-func reportConflictingServices(report *DiagnosticsReport, autoFix bool) {
+func conflictingServiceItems(autoFix bool) []Item {
 	conflicts := []string{"GoodbyeDPI", "discordfix_zapret", "winws1", "winws2"}
 	var found []string
 	for _, name := range conflicts {
@@ -255,26 +242,27 @@ func reportConflictingServices(report *DiagnosticsReport, autoFix bool) {
 		}
 	}
 	if len(found) == 0 {
-		report.add("ok", "Bypass services", "no known conflicting services found")
-		return
+		return []Item{{Status: "ok", Name: "Bypass services", Message: "no known conflicting services found"}}
 	}
 	if !autoFix {
-		report.add("warn", "Bypass services", "found conflicting services: "+strings.Join(found, ", "))
-		return
+		return []Item{{Status: "warn", Name: "Bypass services", Message: "found conflicting services: " + strings.Join(found, ", ")}}
 	}
 
+	var items []Item
 	for _, name := range found {
 		_ = run("net", "stop", name)
 		if err := run("sc", "delete", name); err != nil {
-			report.add("fail", name, "failed to delete: "+err.Error())
+			items = append(items, Item{Status: "fail", Name: name, Message: "failed to delete: " + err.Error()})
 		} else {
-			report.add("fixed", name, "deleted conflicting service")
+			items = append(items, Item{Status: "fixed", Name: name, Message: "deleted conflicting service"})
 		}
 	}
 	_ = run("net", "stop", "WinDivert")
 	_ = run("sc", "delete", "WinDivert")
 	_ = run("net", "stop", "WinDivert14")
 	_ = run("sc", "delete", "WinDivert14")
+
+	return items
 }
 
 func run(name string, args ...string) error {

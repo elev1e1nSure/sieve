@@ -76,7 +76,7 @@ func (s Service) UpdateIPSet(ctx context.Context) (Report, error) {
 }
 
 func (s Service) Status() Report {
-	report := fromDiagnostics("Sieve status", settings.Status(s.assets.BinDir()))
+	report := Report{Title: "Sieve status", Items: statusItems(s.assets.BinDir())}
 
 	sessionActive, sessionErr := runner.SessionActive()
 	sessionItem := Item{Status: "ok", Name: "sieve session", Message: "no other sieve instance is running"}
@@ -99,11 +99,11 @@ func (s Service) Status() Report {
 }
 
 func (s Service) Diagnostics(fix bool) Report {
-	return fromDiagnostics("Diagnostics", settings.RunDiagnostics(s.assets.BinDir(), fix))
+	return Report{Title: "Diagnostics", Items: diagnosticsItems(s.assets.BinDir(), fix)}
 }
 
 func (Service) ClearDiscordCache() Report {
-	return fromDiagnostics("Clear Discord cache", settings.ClearDiscordCache())
+	return Report{Title: "Clear Discord cache", Items: clearDiscordCacheItems()}
 }
 
 func (Service) Update(ctx context.Context) (Report, error) {
@@ -136,14 +136,6 @@ func fromListReport(title string, source settings.ListReport) Report {
 	report := Report{Title: title, Items: make([]Item, 0, len(source.Items))}
 	for _, item := range source.Items {
 		report.Items = append(report.Items, Item{Status: "ok", Name: item.Kind, Message: item.Message})
-	}
-	return report
-}
-
-func fromDiagnostics(title string, source settings.DiagnosticsReport) Report {
-	report := Report{Title: title, Items: make([]Item, 0, len(source.Items))}
-	for _, item := range source.Items {
-		report.Items = append(report.Items, Item{Status: item.Status, Name: item.Name, Message: item.Message})
 	}
 	return report
 }
