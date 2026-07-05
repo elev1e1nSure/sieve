@@ -21,10 +21,10 @@ type Store struct {
 	Data     Data
 }
 
+// CacheStore is the slice of Store the TUI flow consumes; Save/Reset stay
+// on the concrete type (used by maintenance directly).
 type CacheStore interface {
 	Load() error
-	Save() error
-	Reset() error
 	RecordResult(name string, success bool, at time.Time) error
 	SortedConfigs(all []configs.Config) []configs.Config
 }

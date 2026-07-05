@@ -21,10 +21,6 @@ type Config struct {
 	Args []string
 }
 
-func (c Config) Resolve(binDir, listsDir string) []string {
-	return c.ResolveWithOptions(binDir, listsDir, settings.RuntimeOptions{})
-}
-
 func (c Config) ResolveWithOptions(binDir, listsDir string, opts settings.RuntimeOptions) []string {
 	args := make([]string, len(c.Args))
 	for i, arg := range c.Args {

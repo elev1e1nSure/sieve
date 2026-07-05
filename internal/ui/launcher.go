@@ -46,6 +46,8 @@ const (
 	actionClearDiscordCache
 )
 
+// The first six rows are settings and are addressed by these indices in
+// activateRow/openEditor/commitInput/changeSetting.
 const (
 	rowTimeout = iota
 	rowCache
@@ -53,15 +55,44 @@ const (
 	rowDomains
 	rowDomainFiles
 	rowGame
-	rowUpdate
-	rowStop
-	rowResetCache
-	rowUpdateIPSet
-	rowDiagnostics
-	rowDiagnosticsFix
-	rowClearDiscordCache
-	settingsRowCount
 )
+
+// settingsRowDef is the single source of truth for the settings page: label,
+// how to render the current value (settings rows), or which maintenance
+// action to run and whether it needs confirmation (action rows, value == nil).
+type settingsRowDef struct {
+	label   string
+	value   func(o settings.RuntimeOptions) string
+	action  maintenanceAction
+	confirm bool
+}
+
+var settingsRows = []settingsRowDef{
+	{label: "Test timeout", value: func(o settings.RuntimeOptions) string { return fmt.Sprintf("%d seconds", o.TestTimeout) }},
+	{label: "Config cache", value: func(o settings.RuntimeOptions) string { return enabled(!o.NoCache) }},
+	{label: "IPSet mode", value: func(o settings.RuntimeOptions) string { return fallback(o.IPSetMode, "unchanged") }},
+	{label: "Domains", value: func(o settings.RuntimeOptions) string { return listSummary(o.Domains) }},
+	{label: "Domain files", value: func(o settings.RuntimeOptions) string { return listSummary(o.DomainFiles) }},
+	{label: "Game mode", value: func(o settings.RuntimeOptions) string { return fallback(o.GameMode, settings.GameOff) }},
+	{label: "Update sieve", action: actionUpdate, confirm: true},
+	{label: "Stop active sieve", action: actionStop, confirm: true},
+	{label: "Reset config cache", action: actionResetCache, confirm: true},
+	{label: "Update IPSet", action: actionUpdateIPSet, confirm: true},
+	{label: "Run diagnostics", action: actionDiagnostics},
+	{label: "Run diagnostics and fix", action: actionDiagnosticsFix, confirm: true},
+	{label: "Clear Discord cache", action: actionClearDiscordCache, confirm: true},
+}
+
+// firstActionRow marks where the visual separator between settings and
+// maintenance actions goes.
+var firstActionRow = func() int {
+	for i, row := range settingsRows {
+		if row.value == nil {
+			return i
+		}
+	}
+	return len(settingsRows)
+}()
 
 type LauncherModel struct {
 	ctx         context.Context
@@ -185,9 +216,9 @@ func (m LauncherModel) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case launcherSettings:
 		switch key {
 		case "up":
-			m.rowCursor = (m.rowCursor - 1 + settingsRowCount) % settingsRowCount
+			m.rowCursor = (m.rowCursor - 1 + len(settingsRows)) % len(settingsRows)
 		case "down":
-			m.rowCursor = (m.rowCursor + 1) % settingsRowCount
+			m.rowCursor = (m.rowCursor + 1) % len(settingsRows)
 		case "enter":
 			return m.activateRow()
 		case "esc":
@@ -246,8 +277,9 @@ func (m *LauncherModel) activateRow() (tea.Model, tea.Cmd) {
 		m.changeSetting(1)
 		return *m, m.persistDraft()
 	default:
-		m.action = actionForRow(m.rowCursor)
-		if m.action == actionDiagnostics {
+		row := settingsRows[m.rowCursor]
+		m.action = row.action
+		if !row.confirm {
 			return m.startAction()
 		}
 		m.page = launcherConfirm
@@ -378,29 +410,18 @@ func (m LauncherModel) menuView() string {
 }
 
 func (m LauncherModel) settingsView() string {
-	rows := []struct{ label, value string }{
-		{"Test timeout", fmt.Sprintf("%d seconds", m.draft.TestTimeout)},
-		{"Config cache", enabled(!m.draft.NoCache)},
-		{"IPSet mode", fallback(m.draft.IPSetMode, "unchanged")},
-		{"Domains", listSummary(m.draft.Domains)},
-		{"Domain files", listSummary(m.draft.DomainFiles)},
-		{"Game mode", fallback(m.draft.GameMode, settings.GameOff)},
-		{"Update sieve", ""},
-		{"Stop active sieve", ""},
-		{"Reset config cache", ""},
-		{"Update IPSet", ""},
-		{"Run diagnostics", ""},
-		{"Run diagnostics and fix", ""},
-		{"Clear Discord cache", ""},
-	}
-
 	lines := []string{sectionTitleStyle.Render("Settings")}
-	start, end := visibleRange(m.rowCursor, len(rows), max(6, m.height-10))
+	start, end := visibleRange(m.rowCursor, len(settingsRows), max(6, m.height-10))
 	for i := start; i < end; i++ {
-		if i == rowUpdate {
+		if i == firstActionRow {
 			lines = append(lines, "")
 		}
-		lines = append(lines, selectableRow(i == m.rowCursor, rows[i].label, rows[i].value))
+		row := settingsRows[i]
+		value := ""
+		if row.value != nil {
+			value = row.value(m.draft)
+		}
+		lines = append(lines, selectableRow(i == m.rowCursor, row.label, value))
 	}
 	if m.err != nil {
 		lines = append(lines, "", errorStyle.Render(m.err.Error()))
@@ -478,13 +499,13 @@ func selectableRow(selected bool, label, value string) string {
 	return line
 }
 
-func actionForRow(row int) maintenanceAction {
-	return maintenanceAction(row - rowUpdate)
-}
-
 func actionLabel(action maintenanceAction) string {
-	labels := []string{"Update sieve", "Stop active sieve", "Reset config cache", "Update IPSet", "Run diagnostics", "Run diagnostics and fix", "Clear Discord cache"}
-	return labels[int(action)]
+	for _, row := range settingsRows {
+		if row.value == nil && row.action == action {
+			return row.label
+		}
+	}
+	return ""
 }
 
 func cycle(values []string, current string, direction int) string {

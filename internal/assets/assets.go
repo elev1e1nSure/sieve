@@ -27,10 +27,9 @@ type Manager struct {
 	Client     *http.Client
 }
 
+// AssetManager is the slice of Manager the TUI consumes.
 type AssetManager interface {
 	Ensure(ctx context.Context, progress func(Progress)) (Info, error)
-	BinDir() string
-	ListsDir() string
 }
 
 type Progress struct {
