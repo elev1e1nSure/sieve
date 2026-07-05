@@ -33,24 +33,41 @@ const (
 	candidateValidationPasses = 2
 )
 
+// noLuck and flowFinished are the two terminal messages Run can emit;
+// abortAndJoin folds the runner's stop error into the one being reported.
+func noLuck(err error) flowUpdateMsg {
+	return flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
+}
+
+func flowFinished() flowUpdateMsg {
+	return flowUpdateMsg{kind: flowDone, done: true}
+}
+
+func (f Flow) abortAndJoin(err error) error {
+	if stopErr := f.Runner.Stop(); stopErr != nil {
+		return errors.Join(err, stopErr)
+	}
+	return err
+}
+
 func (f Flow) Run(updates chan<- flowUpdateMsg) {
 	defer func() {
 		if r := recover(); r != nil {
-			updates <- flowUpdateMsg{kind: flowNoLuck, err: fmt.Errorf("internal error: %v", r), done: true}
+			updates <- noLuck(fmt.Errorf("internal error: %v", r))
 		}
 		close(updates)
 	}()
 
 	store := f.Cache
 	if err := store.Load(); err != nil {
-		updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
+		updates <- noLuck(err)
 		return
 	}
 	sorted := store.SortedConfigs(f.Configs)
 	total := len(sorted)
 	winwsPath := filepath.Join(f.Assets.BinDir, "winws.exe")
 	if err := f.Runner.Prepare(winwsPath); err != nil {
-		updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
+		updates <- noLuck(err)
 		return
 	}
 	startFailures := 0
@@ -59,7 +76,7 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 	for i, config := range sorted {
 		select {
 		case <-f.Ctx.Done():
-			updates <- flowUpdateMsg{kind: flowDone, done: true}
+			updates <- flowFinished()
 			return
 		default:
 		}
@@ -78,7 +95,7 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 				firstStartErr = err
 			}
 			if cacheErr := store.RecordResult(config.Name, false, time.Now()); cacheErr != nil {
-				updates <- flowUpdateMsg{kind: flowNoLuck, err: cacheErr, done: true}
+				updates <- noLuck(cacheErr)
 				return
 			}
 			continue
@@ -87,14 +104,11 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		startupOutput, err := waitForProcessReady(f.Ctx, process, winwsReadinessTimeout)
 		if errors.Is(err, context.Canceled) {
 			_ = f.Runner.Stop()
-			updates <- flowUpdateMsg{kind: flowDone, done: true}
+			updates <- flowFinished()
 			return
 		}
 		if err != nil {
-			if stopErr := f.Runner.Stop(); stopErr != nil {
-				err = errors.Join(err, stopErr)
-			}
-			updates <- flowUpdateMsg{kind: flowNoLuck, err: withProcessOutput(err, startupOutput), done: true}
+			updates <- noLuck(withProcessOutput(f.abortAndJoin(err), startupOutput))
 			return
 		}
 
@@ -114,67 +128,68 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		}
 		if errors.Is(testErr, context.Canceled) {
 			_ = f.Runner.Stop()
-			updates <- flowUpdateMsg{kind: flowDone, done: true}
+			updates <- flowFinished()
 			return
 		}
 		if testErr != nil {
-			if stopErr := f.Runner.Stop(); stopErr != nil {
-				testErr = errors.Join(testErr, stopErr)
-			}
-			updates <- flowUpdateMsg{kind: flowNoLuck, err: withProcessOutput(testErr, startupOutput), done: true}
+			updates <- noLuck(withProcessOutput(f.abortAndJoin(testErr), startupOutput))
 			return
 		}
 		if err := store.RecordResult(config.Name, ok, time.Now()); err != nil {
 			_ = f.Runner.Stop()
-			updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
+			updates <- noLuck(err)
 			return
 		}
 		if ok {
-			updates <- flowUpdateMsg{kind: flowRunning, currentConfig: config.Name, process: process}
-			for _, line := range startupOutput {
-				updates <- flowUpdateMsg{kind: flowLog, log: line}
-			}
-			recentOutput := make([]string, 0, 3)
-			for {
-				select {
-				case line, more := <-process.Logs():
-					if !more {
-						err := process.Wait()
-						if err == nil {
-							err = errors.New("winws exited unexpectedly")
-						}
-						err = withProcessOutput(err, recentOutput)
-						if cleanupErr := f.Runner.Stop(); cleanupErr != nil {
-							err = errors.Join(err, cleanupErr)
-						}
-						updates <- flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
-						return
-					}
-					recentOutput = appendRecent(recentOutput, line, 3)
-					updates <- flowUpdateMsg{kind: flowLog, log: line}
-				case <-f.Ctx.Done():
-					_ = f.Runner.Stop()
-					updates <- flowUpdateMsg{kind: flowDone, done: true}
-					return
-				}
-			}
+			f.streamLogs(updates, config.Name, process, startupOutput)
+			return
 		}
 
 		if err := f.Runner.Stop(); err != nil {
-			updates <- flowUpdateMsg{kind: flowNoLuck, err: withProcessOutput(err, drainProcessOutput(process, 3)), done: true}
+			updates <- noLuck(withProcessOutput(err, drainProcessOutput(process, 3)))
 			return
 		}
 	}
 
 	if startFailures == total && firstStartErr != nil {
-		updates <- flowUpdateMsg{
-			kind: flowNoLuck,
-			err:  fmt.Errorf("winws could not start for any config: %w", firstStartErr),
-			done: true,
-		}
+		updates <- noLuck(fmt.Errorf("winws could not start for any config: %w", firstStartErr))
 		return
 	}
 	updates <- flowUpdateMsg{kind: flowNoLuck, done: true}
+}
+
+// streamLogs relays winws output for the accepted config until the process
+// exits on its own (an error) or the flow context is cancelled (a shutdown).
+func (f Flow) streamLogs(updates chan<- flowUpdateMsg, configName string, process *runner.Process, startupOutput []string) {
+	updates <- flowUpdateMsg{kind: flowRunning, currentConfig: configName, process: process}
+	for _, line := range startupOutput {
+		updates <- flowUpdateMsg{kind: flowLog, log: line}
+	}
+
+	recentOutput := make([]string, 0, 3)
+	for {
+		select {
+		case line, more := <-process.Logs():
+			if !more {
+				err := process.Wait()
+				if err == nil {
+					err = errors.New("winws exited unexpectedly")
+				}
+				err = withProcessOutput(err, recentOutput)
+				if cleanupErr := f.Runner.Stop(); cleanupErr != nil {
+					err = errors.Join(err, cleanupErr)
+				}
+				updates <- noLuck(err)
+				return
+			}
+			recentOutput = appendRecent(recentOutput, line, 3)
+			updates <- flowUpdateMsg{kind: flowLog, log: line}
+		case <-f.Ctx.Done():
+			_ = f.Runner.Stop()
+			updates <- flowFinished()
+			return
+		}
+	}
 }
 
 func (f Flow) testProcess(process *runner.Process) (tester.TestResult, error) {
@@ -309,16 +324,14 @@ func (m Model) handleAssetUpdate(msg assetUpdateMsg) (Model, tea.Cmd) {
 		m.refreshBody()
 		return m, nil
 	}
-	if report, err := m.app.Settings.Apply(m.ctx, msg.info.ListsDir); err != nil {
+	report, err := m.app.Settings.Apply(m.ctx, msg.info.ListsDir)
+	if err != nil {
 		m.ui.state = StateNoLuck
 		m.flow.err = err
 		m.refreshBody()
 		return m, nil
-	} else {
-		for _, item := range report {
-			m.ui.startupNotices = append(m.ui.startupNotices, item)
-		}
 	}
+	m.ui.startupNotices = append(m.ui.startupNotices, report...)
 
 	m.ui.state = StateTesting
 	m.flow.currentConfig = "starting"

@@ -469,7 +469,7 @@ func selectableRow(selected bool, label, value string) string {
 	labelStyle := valueStyle
 	if selected {
 		prefix = dotStyle.Render("› ")
-		labelStyle = titleStyle.Copy().Foreground(colorRustHi)
+		labelStyle = titleStyle.Foreground(colorRustHi)
 	}
 	line := prefix + labelStyle.Render(label)
 	if value != "" {

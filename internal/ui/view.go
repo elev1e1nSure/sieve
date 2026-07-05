@@ -180,17 +180,18 @@ func (m Model) footer() string {
 }
 
 func (m Model) stateBadge() string {
+	// lipgloss styles are value types; Foreground already returns a copy.
 	switch m.ui.state {
 	case StateUpdating:
-		return badgeStyle.Copy().Foreground(colorRust).Render("updating")
+		return badgeStyle.Foreground(colorRust).Render("updating")
 	case StateTesting:
-		return badgeStyle.Copy().Foreground(colorWarn).Render("testing")
+		return badgeStyle.Foreground(colorWarn).Render("testing")
 	case StateRunning:
-		return badgeStyle.Copy().Foreground(colorSuccess).Render("running")
+		return badgeStyle.Foreground(colorSuccess).Render("running")
 	case StateNoLuck:
-		return badgeStyle.Copy().Foreground(colorError).Render("stopped")
+		return badgeStyle.Foreground(colorError).Render("stopped")
 	case StateClosing:
-		return badgeStyle.Copy().Foreground(colorCleanup).Render("cleanup")
+		return badgeStyle.Foreground(colorCleanup).Render("cleanup")
 	default:
 		return badgeStyle.Render("idle")
 	}
