@@ -11,7 +11,7 @@ This project uses [`just`](https://github.com/casey/just) as the command runner;
 - `just run-timeout <seconds>` — `go run . --test-timeout <seconds>`
 - `just release-build` — Windows/amd64 release build, outputs `dist/sieve-windows-amd64.exe`, version derived from `git describe --tags --abbrev=0` (or `$env:VERSION`)
 - `just fmt` — `gofmt -w main.go internal`
-- `just test` — `go test ./...` (no test files exist yet; this is the command to use once they do)
+- `just test` — `go test ./...`; tests cover the pure logic (fsutil, cache ranking, version comparison, domain/list handling, log formatting, release fetch, connectivity checks) — the TUI, runner, and Win32 layers are untested by design
 - `just clean` — removes `sieve.exe` and `dist/`
 - `just icon` — regenerates `rsrc_windows_amd64.syso` from `assets/icon/icon.png` via [`go-winres`](https://github.com/tc-hib/go-winres); the `.syso` is committed and embedded automatically by `go build`/`go run`, so this only needs to run again after changing the source icon
 
