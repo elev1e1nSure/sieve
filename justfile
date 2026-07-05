@@ -6,6 +6,15 @@ default:
 fmt:
     gofmt -w main.go internal
 
+fmt-check:
+    $files = gofmt -l main.go internal; if ($files) { Write-Output $files; exit 1 }
+
+lint:
+    go vet ./...
+    golangci-lint run
+
+check: fmt-check lint test build
+
 icon:
     go-winres simply --arch amd64 --icon assets/icon/icon.png --manifest cli --file-description "sieve" --product-name "sieve" --copyright "elev1e1nSure" --product-version "git-tag" --file-version "git-tag"
 
