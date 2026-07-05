@@ -106,8 +106,10 @@ func (Service) ClearDiscordCache() Report {
 	return Report{Title: "Clear Discord cache", Items: clearDiscordCacheItems()}
 }
 
-func (Service) Update(ctx context.Context) (Report, error) {
-	result, err := selfupdate.New().Update(ctx, true)
+// Update runs the self-updater; restart controls whether the freshly
+// installed binary is relaunched in the current console.
+func (Service) Update(ctx context.Context, restart bool) (Report, error) {
+	result, err := selfupdate.New().Update(ctx, restart)
 	if err != nil {
 		switch {
 		case errors.Is(err, selfupdate.ErrNoRelease):

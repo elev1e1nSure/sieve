@@ -327,7 +327,7 @@ func (m *LauncherModel) startAction() (tea.Model, tea.Cmd) {
 		var err error
 		switch action {
 		case actionUpdate:
-			report, err = m.maintenance.Update(m.ctx)
+			report, err = m.maintenance.Update(m.ctx, true)
 		case actionStop:
 			report, err = m.maintenance.Stop()
 		case actionResetCache:
