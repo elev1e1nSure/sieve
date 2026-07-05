@@ -2,6 +2,7 @@ package settings
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/elev1e1nSure/sieve/internal/fsutil"
 )
 
 const (
@@ -109,32 +112,12 @@ func updateIPSet(ctx context.Context, path string) (int, error) {
 		return 0, fmt.Errorf("ipset update failed: %s", resp.Status)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return 0, err
-	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".ipset-*.txt")
+	var payload bytes.Buffer
+	count, err := copyCountingLines(&payload, resp.Body)
 	if err != nil {
 		return 0, err
 	}
-	tmpName := tmp.Name()
-	count, copyErr := copyCountingLines(tmp, resp.Body)
-	closeErr := tmp.Close()
-	if copyErr != nil {
-		os.Remove(tmpName)
-		return 0, copyErr
-	}
-	if closeErr != nil {
-		os.Remove(tmpName)
-		return 0, closeErr
-	}
-
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		os.Remove(tmpName)
-		return 0, err
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		os.Remove(tmpName)
+	if err := fsutil.WriteAtomic(path, payload.Bytes()); err != nil {
 		return 0, err
 	}
 

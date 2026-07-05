@@ -399,10 +399,8 @@ func (m *Manager) runLoop() {
 
 func loadAppIcon(hInst uintptr) uintptr {
 	// The rsrc tool embeds the application icon with resource ID 1.
-	hIcon, _, _ := procLoadIconW.Call(
-		hInst,
-		uintptr(unsafe.Pointer((*uint16)(unsafe.Pointer(uintptr(1))))),
-	)
+	// MAKEINTRESOURCE(1): an integer resource ID is passed as the pointer value.
+	hIcon, _, _ := procLoadIconW.Call(hInst, uintptr(1))
 	if hIcon != 0 {
 		return hIcon
 	}

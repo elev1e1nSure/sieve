@@ -42,7 +42,7 @@ type App struct {
 	Settings       settings.RuntimeOptions
 	// Tray is optional. When non-nil and tray.IsAvailable() was true,
 	// pressing T while running minimises to the system tray.
-	Tray           *tray.Manager
+	Tray *tray.Manager
 }
 
 type Model struct {
