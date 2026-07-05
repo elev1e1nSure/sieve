@@ -3,7 +3,6 @@ package assets
 import (
 	"archive/zip"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/elev1e1nSure/sieve/internal/github"
 	"github.com/elev1e1nSure/sieve/internal/paths"
 )
 
@@ -48,18 +48,6 @@ type Info struct {
 	ListsDir   string
 }
 
-type release struct {
-	TagName string         `json:"tag_name"`
-	Zipball string         `json:"zipball_url"`
-	Assets  []releaseAsset `json:"assets"`
-}
-
-type releaseAsset struct {
-	Name        string `json:"name"`
-	DownloadURL string `json:"browser_download_url"`
-	Size        int64  `json:"size"`
-}
-
 func NewManager() Manager {
 	return Manager{
 		InstallDir: paths.InstallDir(),
@@ -89,12 +77,9 @@ func (m Manager) Ensure(ctx context.Context, progress func(Progress)) (Info, err
 		return Info{}, err
 	}
 
-	latest, err := m.fetchLatest(ctx)
+	latest, err := github.LatestRelease(ctx, m.client(), m.APIURL)
 	if err != nil {
-		return Info{}, err
-	}
-	if latest.TagName == "" {
-		return Info{}, errors.New("latest flowseal release has no tag")
+		return Info{}, fmt.Errorf("flowseal release: %w", err)
 	}
 
 	localVersion, _ := os.ReadFile(m.VersionFile())
@@ -105,7 +90,7 @@ func (m Manager) Ensure(ctx context.Context, progress func(Progress)) (Info, err
 		return m.info(latest.TagName, false), nil
 	}
 
-	downloadURL, expectedSize, err := latest.download()
+	downloadURL, expectedSize, err := zipTarget(latest)
 	if err != nil {
 		return Info{}, err
 	}
@@ -130,32 +115,6 @@ func (m Manager) Ensure(ctx context.Context, progress func(Progress)) (Info, err
 	}
 
 	return m.info(latest.TagName, true), nil
-}
-
-func (m Manager) fetchLatest(ctx context.Context) (release, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.APIURL, nil)
-	if err != nil {
-		return release{}, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "sieve")
-
-	resp, err := m.client().Do(req)
-	if err != nil {
-		return release{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return release{}, fmt.Errorf("github release request failed: %s", resp.Status)
-	}
-
-	var latest release
-	if err := json.NewDecoder(resp.Body).Decode(&latest); err != nil {
-		return release{}, err
-	}
-
-	return latest, nil
 }
 
 func (m Manager) download(ctx context.Context, url string, expectedSize int64, progress func(Progress)) (string, error) {
@@ -227,15 +186,15 @@ func (m Manager) client() *http.Client {
 	return http.DefaultClient
 }
 
-func (r release) download() (string, int64, error) {
+func zipTarget(r github.Release) (string, int64, error) {
 	for _, asset := range r.Assets {
 		if strings.HasSuffix(strings.ToLower(asset.Name), ".zip") && asset.DownloadURL != "" {
 			return asset.DownloadURL, asset.Size, nil
 		}
 	}
 
-	if r.Zipball != "" {
-		return r.Zipball, 0, nil
+	if r.ZipballURL != "" {
+		return r.ZipballURL, 0, nil
 	}
 
 	return "", 0, errors.New("latest flowseal release has no zip asset")

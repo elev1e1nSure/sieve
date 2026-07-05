@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/elev1e1nSure/sieve/internal/github"
 	"github.com/elev1e1nSure/sieve/internal/version"
 )
 
@@ -39,17 +39,6 @@ type Result struct {
 	Message string
 }
 
-type release struct {
-	TagName string         `json:"tag_name"`
-	Assets  []releaseAsset `json:"assets"`
-}
-
-type releaseAsset struct {
-	Name        string `json:"name"`
-	DownloadURL string `json:"browser_download_url"`
-	Size        int64  `json:"size"`
-}
-
 func New() Updater {
 	return Updater{
 		APIURL: defaultAPIURL,
@@ -70,14 +59,17 @@ func (u Updater) Update(ctx context.Context, restart bool) (Result, error) {
 		return Result{}, ErrGoRun
 	}
 
-	latest, err := u.fetchLatest(ctx)
+	latest, err := github.LatestRelease(ctx, u.client(), u.apiURL())
+	if errors.Is(err, github.ErrNotFound) {
+		return Result{}, ErrNoRelease
+	}
 	if err != nil {
 		return Result{}, err
 	}
 	if isCurrent(latest.TagName) {
 		return Result{Version: latest.TagName, Message: "already up to date"}, ErrCurrent
 	}
-	asset, ok := latest.compatibleAsset()
+	asset, ok := compatibleAsset(latest)
 	if !ok {
 		return Result{Version: latest.TagName}, ErrNoAsset
 	}
@@ -99,46 +91,13 @@ func (u Updater) Update(ctx context.Context, restart bool) (Result, error) {
 	}, nil
 }
 
-func (u Updater) fetchLatest(ctx context.Context) (release, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.apiURL(), nil)
-	if err != nil {
-		return release{}, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "sieve")
-	setAuthHeader(req)
-
-	resp, err := u.client().Do(req)
-	if err != nil {
-		return release{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return release{}, ErrNoRelease
-	}
-	if resp.StatusCode != http.StatusOK {
-		return release{}, fmt.Errorf("github release request failed: %s", resp.Status)
-	}
-
-	var latest release
-	if err := json.NewDecoder(resp.Body).Decode(&latest); err != nil {
-		return release{}, err
-	}
-	if latest.TagName == "" {
-		return release{}, ErrNoRelease
-	}
-
-	return latest, nil
-}
-
 func (u Updater) download(ctx context.Context, url string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("User-Agent", "sieve")
-	setAuthHeader(req)
+	github.AddAuthHeader(req)
 
 	resp, err := u.client().Do(req)
 	if err != nil {
@@ -185,26 +144,14 @@ func (u Updater) client() *http.Client {
 	return http.DefaultClient
 }
 
-func setAuthHeader(req *http.Request) {
-	token := strings.TrimSpace(os.Getenv("GH_TOKEN"))
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("GITHUB_TOKEN"))
-	}
-	if token == "" {
-		return
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-}
-
-func (r release) compatibleAsset() (releaseAsset, bool) {
+func compatibleAsset(r github.Release) (github.Asset, bool) {
 	preferred := []string{
 		"sieve-windows-amd64.exe",
 		"sieve_windows_amd64.exe",
 		"sieve.exe",
 	}
 	if runtime.GOOS != "windows" || runtime.GOARCH != "amd64" {
-		return releaseAsset{}, false
+		return github.Asset{}, false
 	}
 
 	for _, want := range preferred {
@@ -221,7 +168,7 @@ func (r release) compatibleAsset() (releaseAsset, bool) {
 		}
 	}
 
-	return releaseAsset{}, false
+	return github.Asset{}, false
 }
 
 func currentVersion() string {
