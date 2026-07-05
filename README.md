@@ -1,5 +1,8 @@
 # sieve
 
+[![Release](https://img.shields.io/github/v/release/elev1e1nSure/sieve)](https://github.com/elev1e1nSure/sieve/releases/latest)
+[![CI](https://github.com/elev1e1nSure/sieve/actions/workflows/ci.yml/badge.svg)](https://github.com/elev1e1nSure/sieve/actions/workflows/ci.yml)
+
 Просеивает конфиги, пока что-то не сработает.
 
 DPI не идёт на компромиссы — значит, и sieve не идёт. Портативный Windows TUI,
