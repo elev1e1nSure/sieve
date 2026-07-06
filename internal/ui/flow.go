@@ -311,6 +311,11 @@ func waitForFlowUpdate(updates <-chan flowUpdateMsg) tea.Cmd {
 }
 
 func (m Model) handleAssetUpdate(msg assetUpdateMsg) (Model, tea.Cmd) {
+	// A cancelled asset download reports an error after ctrl+c; it must not
+	// yank the state machine out of the shutdown sequence.
+	if m.ui.state == StateClosing || m.ui.state == StateBye {
+		return m, nil
+	}
 	m.flow.progress = msg.progress
 	m.flow.assets = msg.info
 	m.flow.err = msg.err

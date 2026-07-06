@@ -170,7 +170,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.WindowSizeMsg:
 		m.ui.viewport.Width = max(1, msg.Width-4)
-		m.ui.viewport.Height = max(1, msg.Height-7)
+		// The full view is viewport + 8 lines: header (1), panel border (2),
+		// panel padding (2), panel margins (2), footer (1). It must not exceed
+		// the terminal height, or the inline renderer scrolls on every frame.
+		m.ui.viewport.Height = max(1, msg.Height-8)
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.ui.spinner, cmd = m.ui.spinner.Update(msg)

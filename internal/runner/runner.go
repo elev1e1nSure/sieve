@@ -90,6 +90,7 @@ func (r *Runner) Start(winwsPath string, args []string) (*Process, error) {
 	}
 
 	cmd := exec.Command(winwsPath, args...)
+	configureCommand(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		group.Close()
@@ -182,22 +183,20 @@ func (p *Process) stop() error {
 
 	p.stopOnce.Do(func() {
 		close(p.stopCh)
+		// The mutex is held across Terminate so wait() cannot close the group
+		// handle mid-call; a closed handle value may be recycled by the OS and
+		// TerminateJobObject would then kill an unrelated job.
 		p.mu.Lock()
+		defer p.mu.Unlock()
 		if p.groupClosed {
-			p.mu.Unlock()
 			return
 		}
 		p.stopping = true
-		p.mu.Unlock()
 
 		if err := p.group.Terminate(); err != nil {
-			p.mu.Lock()
 			p.stopErr = err
-			p.mu.Unlock()
 			if killErr := p.cmd.Process.Kill(); killErr != nil && !errors.Is(killErr, os.ErrProcessDone) {
-				p.mu.Lock()
 				p.stopErr = errors.Join(p.stopErr, killErr)
-				p.mu.Unlock()
 			}
 		}
 	})
@@ -227,8 +226,8 @@ func (p *Process) wait() {
 	err := p.cmd.Wait()
 	p.mu.Lock()
 	p.groupClosed = true
-	p.mu.Unlock()
 	p.groupOnce.Do(func() { _ = p.group.Close() })
+	p.mu.Unlock()
 	p.scansWg.Wait()
 
 	p.mu.Lock()

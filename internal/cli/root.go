@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -87,8 +88,20 @@ func Execute() {
 		if !errors.As(err, &displayed) {
 			fmt.Fprintln(os.Stderr, failStyle.Render("✗")+" "+err.Error())
 		}
+		holdOwnConsole()
 		os.Exit(1)
 	}
+}
+
+// holdOwnConsole keeps the console window open until Enter is pressed, but
+// only when sieve owns the console (double-click / elevated relaunch). Without
+// this the window closes with the process and the error is never seen.
+func holdOwnConsole() {
+	if !tray.IsAvailable() {
+		return
+	}
+	fmt.Fprint(os.Stderr, "press enter to close ")
+	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 }
 
 // ensureAdmin reports whether sieve already runs elevated; when it does not,

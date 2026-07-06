@@ -2,7 +2,12 @@
 
 package runner
 
-import "os"
+import (
+	"os"
+	"os/exec"
+)
+
+func configureCommand(*exec.Cmd) {}
 
 type directProcessGroup struct {
 	process *os.Process

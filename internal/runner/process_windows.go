@@ -3,10 +3,23 @@
 package runner
 
 import (
+	"os/exec"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
+
+// configureCommand detaches winws from sieve's console. A child console
+// process attached to the same console can reset its mode (VT processing,
+// line input) and corrupt the running TUI; CREATE_NO_WINDOW gives winws its
+// own invisible conhost instead. Its stdio is piped, so nothing is lost.
+func configureCommand(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: windows.CREATE_NO_WINDOW,
+	}
+}
 
 type windowsProcessGroup struct {
 	handle windows.Handle
