@@ -11,7 +11,7 @@ fmt-check:
 
 lint:
     go vet ./...
-    golangci-lint run
+    $env:PATH = "$(go env GOPATH)\bin;$env:PATH"; golangci-lint run
 
 check: fmt-check lint test build
 

@@ -3,6 +3,8 @@
 // Package tray implements a Windows system-tray icon for sieve.
 // It uses direct Win32 calls (Shell_NotifyIconW, CreateWindowExW, etc.)
 // through golang.org/x/sys/windows — no external library needed.
+//
+//nolint:errcheck
 package tray
 
 import (

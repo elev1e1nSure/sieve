@@ -31,7 +31,7 @@ func newProcessGroup() (processGroup, error) {
 		return nil, err
 	}
 	if err := configureKillOnClose(job); err != nil {
-		windows.CloseHandle(job)
+		_ = windows.CloseHandle(job)
 		return nil, err
 	}
 	return &windowsProcessGroup{handle: job}, nil
@@ -46,7 +46,7 @@ func (g *windowsProcessGroup) Assign(pid int) error {
 	if err != nil {
 		return err
 	}
-	defer windows.CloseHandle(process)
+	defer windows.CloseHandle(process) //nolint:errcheck
 	return windows.AssignProcessToJobObject(g.handle, process)
 }
 

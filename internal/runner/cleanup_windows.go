@@ -40,7 +40,7 @@ func terminateProcessesAtPath(executablePath string, excludePID uint32) (bool, e
 	if err != nil {
 		return false, fmt.Errorf("list processes: %w", err)
 	}
-	defer windows.CloseHandle(snapshot)
+	defer windows.CloseHandle(snapshot) //nolint:errcheck
 
 	entry := windows.ProcessEntry32{Size: uint32(unsafe.Sizeof(windows.ProcessEntry32{}))}
 	if err := windows.Process32First(snapshot, &entry); err != nil {
@@ -85,7 +85,7 @@ func terminateProcessAtPath(pid uint32, target string) (bool, error) {
 		}
 		return false, fmt.Errorf("open process %d: %w", pid, err)
 	}
-	defer windows.CloseHandle(process)
+	defer windows.CloseHandle(process) //nolint:errcheck
 
 	path, err := processImagePath(process)
 	if err != nil {

@@ -12,7 +12,7 @@ func TestLatestRelease(t *testing.T) {
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		w.Write([]byte(`{"tag_name":"v1.2.3","assets":[{"name":"sieve.exe","browser_download_url":"https://example.com/dl","size":42}]}`))
+		_, _ = w.Write([]byte(`{"tag_name":"v1.2.3","assets":[{"name":"sieve.exe","browser_download_url":"https://example.com/dl","size":42}]}`))
 	}))
 	defer server.Close()
 
@@ -46,7 +46,7 @@ func TestLatestReleaseNotFound(t *testing.T) {
 
 func TestLatestReleaseEmptyTag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Write([]byte(`{"tag_name":""}`))
+		_, _ = w.Write([]byte(`{"tag_name":""}`))
 	}))
 	defer server.Close()
 

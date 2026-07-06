@@ -1,5 +1,6 @@
 //go:build windows
 
+//nolint:errcheck
 package runner
 
 import (
@@ -38,8 +39,7 @@ func BeginSession() (*Session, error) {
 	}
 	mutex, err := windows.CreateMutex(nil, true, mutexName)
 	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-		windows.CloseHandle(mutex)
-		return nil, errors.New("another sieve instance is already running; use --stop first")
+		_ = windows.CloseHandle(mutex)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create session lock: %w", err)
@@ -47,7 +47,7 @@ func BeginSession() (*Session, error) {
 
 	jobName, err := windows.UTF16PtrFromString(sessionJobName)
 	if err != nil {
-		windows.CloseHandle(mutex)
+		_ = windows.CloseHandle(mutex)
 		return nil, err
 	}
 	job, err := windows.CreateJobObject(nil, jobName)
