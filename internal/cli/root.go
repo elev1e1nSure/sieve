@@ -223,7 +223,7 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 		Tray:           trayMgr,
 	}
 
-	program := tea.NewProgram(ui.NewModel(app))
+	program := tea.NewProgram(ui.NewModel(app), tea.WithAltScreen())
 	// Wire the program reference so tray callbacks can deliver messages.
 	// Tray callbacks only fire after program.Run() has started, so there
 	// is no data race here.
