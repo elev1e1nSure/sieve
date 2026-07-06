@@ -284,9 +284,7 @@ func readDomainFile(path string) ([]string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		for _, domain := range splitDomains(line) {
-			domains = append(domains, domain)
-		}
+		domains = append(domains, splitDomains(line)...)
 	}
 
 	return domains, scanner.Err()
