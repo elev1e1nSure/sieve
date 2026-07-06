@@ -89,6 +89,9 @@ func terminateProcessAtPath(pid uint32, target string) (bool, error) {
 
 	path, err := processImagePath(process)
 	if err != nil {
+		if errors.Is(err, windows.ERROR_GEN_FAILURE) || errors.Is(err, windows.ERROR_ACCESS_DENIED) || errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+			return false, nil
+		}
 		return false, fmt.Errorf("read process %d path: %w", pid, err)
 	}
 	if !filepath.IsAbs(path) || !equalPath(path, target) {
@@ -132,7 +135,7 @@ func cleanupSystem() (cleanupErr error) {
 	manager, err := mgr.Connect()
 	if err != nil {
 		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-			return errors.New("Windows denied access to service cleanup; run sieve as administrator")
+			return errors.New("windows denied access to service cleanup; run sieve as administrator")
 		}
 		return fmt.Errorf("connect to Windows service manager: %w", err)
 	}
