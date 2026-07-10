@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -35,12 +36,6 @@ type options struct {
 	fix               bool
 	status            bool
 	runtime           settings.RuntimeOptions
-}
-
-// displayedError marks an error the TUI has already rendered, so Execute
-// does not print it a second time.
-type displayedError struct {
-	error
 }
 
 func Execute() {
@@ -84,13 +79,28 @@ func Execute() {
 	applyStyledTemplates(root)
 
 	if err := root.Execute(); err != nil {
-		var displayed displayedError
-		if !errors.As(err, &displayed) {
-			fmt.Fprintln(os.Stderr, failStyle.Render("✗")+" "+err.Error())
-		}
+		// The TUI runs in the alt screen, so anything it rendered is gone by
+		// now — this print is the only durable record of what went wrong.
+		fmt.Fprintln(os.Stderr, failStyle.Render("✗")+" "+dedupErrorLines(err))
 		holdOwnConsole()
 		os.Exit(1)
 	}
+}
+
+// dedupErrorLines flattens a joined error into unique, indented lines;
+// cleanup paths often join the same failure from several layers.
+func dedupErrorLines(err error) string {
+	seen := make(map[string]bool)
+	lines := make([]string, 0, 4)
+	for _, line := range strings.Split(err.Error(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n  ")
 }
 
 // holdOwnConsole keeps the console window open until Enter is pressed, but
@@ -152,12 +162,18 @@ func runApp(ctx context.Context) (runErr error) {
 	if err != nil {
 		return fmt.Errorf("failed to run launcher TUI: %w", err)
 	}
-	launcher, ok := finalLauncher.(ui.LauncherModel)
-	if !ok || launcher.Choice() != ui.LauncherRun {
+	launcher, choseRun := finalLauncher.(ui.LauncherModel)
+	if !choseRun || launcher.Choice() != ui.LauncherRun {
 		return nil
 	}
 
-	return runSieve(ctx, startupNotices)
+	if err := runSieve(ctx, startupNotices); err != nil {
+		return err
+	}
+	// The TUI's goodbye view lives in the alt screen and vanishes on exit,
+	// so the clean-exit confirmation has to be printed here.
+	fmt.Println(ok("sieve stopped cleanly"))
+	return nil
 }
 
 func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
@@ -238,7 +254,7 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 		return fmt.Errorf("failed to run TUI: %w", err)
 	}
 	if model, ok := finalModel.(ui.Model); ok && model.ShutdownError() != nil {
-		return displayedError{fmt.Errorf("sieve stopped with an error: %w", model.ShutdownError())}
+		return fmt.Errorf("sieve stopped with an error: %w", model.ShutdownError())
 	}
 
 	return nil

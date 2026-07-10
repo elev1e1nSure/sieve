@@ -177,7 +177,9 @@ func (p *Process) Wait() error {
 func (p *Process) stop() error {
 	select {
 	case <-p.done:
-		return p.Wait()
+		// Already exited on its own; its exit code is the flow's business
+		// (via Wait), not a stop failure.
+		return nil
 	default:
 	}
 
@@ -204,7 +206,13 @@ func (p *Process) stop() error {
 	waitErr := p.Wait()
 	p.mu.Lock()
 	stopErr := p.stopErr
+	terminated := p.stopping
 	p.mu.Unlock()
+	if !terminated {
+		// The process exited by itself before we could terminate it; its
+		// exit code is not a stop failure.
+		waitErr = nil
+	}
 	return errors.Join(stopErr, waitErr)
 }
 

@@ -33,21 +33,13 @@ const (
 	candidateValidationPasses = 2
 )
 
-// noLuck and flowFinished are the two terminal messages Run can emit;
-// abortAndJoin folds the runner's stop error into the one being reported.
+// noLuck and flowFinished are the two terminal messages Run can emit.
 func noLuck(err error) flowUpdateMsg {
 	return flowUpdateMsg{kind: flowNoLuck, err: err, done: true}
 }
 
 func flowFinished() flowUpdateMsg {
 	return flowUpdateMsg{kind: flowDone, done: true}
-}
-
-func (f Flow) abortAndJoin(err error) error {
-	if stopErr := f.Runner.Stop(); stopErr != nil {
-		return errors.Join(err, stopErr)
-	}
-	return err
 }
 
 func (f Flow) Run(updates chan<- flowUpdateMsg) {
@@ -107,52 +99,61 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 			updates <- flowFinished()
 			return
 		}
+		if err == nil {
+			ok := true
+			var testErr error
+			for range candidateValidationPasses {
+				result, terr := f.testProcess(process)
+				if terr != nil {
+					testErr = terr
+					ok = false
+					break
+				}
+				if !result.Discord || !result.YouTube || result.Err != nil {
+					ok = false
+					break
+				}
+			}
+			if errors.Is(testErr, context.Canceled) {
+				_ = f.Runner.Stop()
+				updates <- flowFinished()
+				return
+			}
+			err = testErr
+			if err == nil {
+				if cacheErr := store.RecordResult(config.Name, ok, time.Now()); cacheErr != nil {
+					_ = f.Runner.Stop()
+					updates <- noLuck(cacheErr)
+					return
+				}
+				if ok {
+					f.streamLogs(updates, config.Name, process, startupOutput)
+					return
+				}
+			}
+		}
 		if err != nil {
-			updates <- noLuck(withProcessOutput(f.abortAndJoin(err), startupOutput))
-			return
-		}
-
-		ok := true
-		var testErr error
-		for range candidateValidationPasses {
-			result, err := f.testProcess(process)
-			if err != nil {
-				testErr = err
-				ok = false
-				break
+			// winws died before or during validation — a per-config failure,
+			// not a reason to abandon the remaining configs.
+			startFailures++
+			if firstStartErr == nil {
+				firstStartErr = withProcessOutput(err, startupOutput)
 			}
-			if !result.Discord || !result.YouTube || result.Err != nil {
-				ok = false
-				break
+			if cacheErr := store.RecordResult(config.Name, false, time.Now()); cacheErr != nil {
+				_ = f.Runner.Stop()
+				updates <- noLuck(cacheErr)
+				return
 			}
 		}
-		if errors.Is(testErr, context.Canceled) {
-			_ = f.Runner.Stop()
-			updates <- flowFinished()
-			return
-		}
-		if testErr != nil {
-			updates <- noLuck(withProcessOutput(f.abortAndJoin(testErr), startupOutput))
-			return
-		}
-		if err := store.RecordResult(config.Name, ok, time.Now()); err != nil {
-			_ = f.Runner.Stop()
-			updates <- noLuck(err)
-			return
-		}
-		if ok {
-			f.streamLogs(updates, config.Name, process, startupOutput)
-			return
-		}
 
-		if err := f.Runner.Stop(); err != nil {
-			updates <- noLuck(withProcessOutput(err, drainProcessOutput(process, 3)))
+		if stopErr := f.Runner.Stop(); stopErr != nil {
+			updates <- noLuck(withProcessOutput(stopErr, drainProcessOutput(process, 3)))
 			return
 		}
 	}
 
 	if startFailures == total && firstStartErr != nil {
-		updates <- noLuck(fmt.Errorf("winws could not start for any config: %w", firstStartErr))
+		updates <- noLuck(fmt.Errorf("winws could not start or stay up for any config: %w", firstStartErr))
 		return
 	}
 	updates <- flowUpdateMsg{kind: flowNoLuck, done: true}

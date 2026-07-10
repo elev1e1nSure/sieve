@@ -182,15 +182,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case assetUpdateMsg:
 		var cmd tea.Cmd
 		m, cmd = m.handleAssetUpdate(msg)
-		if m.ui.state == StateNoLuck && m.flow.err != nil {
-			return m.beginShutdown("startup failed", m.flow.err)
-		}
+		// Errors land in StateNoLuck and stay on screen until the user quits;
+		// quitting immediately would wipe the alt screen before anyone reads it.
 		return m, cmd
 	case flowUpdateMsg:
 		m = m.handleFlowUpdate(msg)
-		if msg.kind == flowNoLuck && msg.err != nil {
-			return m.beginShutdown("winws stopped with an error", msg.err)
-		}
 		if msg.done {
 			return m, nil
 		}

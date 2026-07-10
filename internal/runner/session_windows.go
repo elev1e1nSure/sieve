@@ -40,6 +40,7 @@ func BeginSession() (*Session, error) {
 	mutex, err := windows.CreateMutex(nil, true, mutexName)
 	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 		_ = windows.CloseHandle(mutex)
+		return nil, errors.New("another sieve is already running (check the system tray) — close it or run 'sieve --stop' first")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create session lock: %w", err)
