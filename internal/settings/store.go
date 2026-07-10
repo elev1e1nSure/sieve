@@ -3,6 +3,7 @@ package settings
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -29,9 +30,12 @@ func (s Store) Load() (RuntimeOptions, error) {
 		return RuntimeOptions{}, err
 	}
 
+	// Unlike the disposable config cache, settings.json holds user-entered
+	// choices (domains, ipset mode, ...); a corrupt file must fail loudly
+	// rather than silently reset them, so the user can inspect or fix it.
 	var opts RuntimeOptions
 	if err := json.Unmarshal(data, &opts); err != nil {
-		return RuntimeOptions{}, err
+		return RuntimeOptions{}, fmt.Errorf("%s is corrupted: %w (delete it to reset to defaults)", s.Path, err)
 	}
 
 	return opts.Normalized(), nil

@@ -2,15 +2,14 @@
 package fsutil
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 )
 
 // WriteAtomic writes data to path through a temp file in the same directory
-// plus a rename, so readers never observe a partially written file. The
-// existing file is removed first because os.Rename cannot replace an existing
-// file on Windows.
+// plus a rename, so readers never observe a partially written file. os.Rename
+// already replaces an existing destination on Windows (MoveFileEx with
+// MOVEFILE_REPLACE_EXISTING since Go 1.5), so no separate remove step is needed.
 func WriteAtomic(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -33,10 +32,6 @@ func WriteAtomic(path string, data []byte) error {
 		return err
 	}
 
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		os.Remove(tmpName)
-		return err
-	}
 	if err := os.Rename(tmpName, path); err != nil {
 		os.Remove(tmpName)
 		return err

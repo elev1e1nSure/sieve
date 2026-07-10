@@ -144,6 +144,11 @@ func (u Updater) client() *http.Client {
 	return http.DefaultClient
 }
 
+// compatibleAsset picks the release asset to install. r.Assets always comes
+// from sieve's own repo (defaultAPIURL / Updater.APIURL), so the fuzzy
+// *.exe+"sieve" fallback below can only ever match sieve's own release
+// artifacts, not an arbitrary binary — the exact-name whitelist is tried
+// first purely to prefer the canonical name over legacy ones.
 func compatibleAsset(r github.Release) (github.Asset, bool) {
 	preferred := []string{
 		"sieve-windows-amd64.exe",

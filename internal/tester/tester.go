@@ -89,6 +89,9 @@ func (t Tester) check(ctx context.Context, client *http.Client, url string) (boo
 		return false, err
 	}
 	defer resp.Body.Close()
+	// Draining the body (not just checking the status) confirms the DPI
+	// bypass actually lets the full response through, not just a TCP
+	// handshake or a truncated reply; bounded by the client's own Timeout.
 	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 		return false, fmt.Errorf("read %s response: %w", url, err)
 	}

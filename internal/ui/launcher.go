@@ -359,6 +359,9 @@ func (m *LauncherModel) startAction() (tea.Model, tea.Cmd) {
 		var err error
 		switch action {
 		case actionUpdate:
+			// restart=true relaunches the new binary into this same console
+			// before this process exits; the two briefly overlap, which is
+			// fine since only the new one keeps running afterward.
 			report, err = m.maintenance.Update(m.ctx, true)
 		case actionStop:
 			report, err = m.maintenance.Stop()
