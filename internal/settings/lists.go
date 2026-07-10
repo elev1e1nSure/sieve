@@ -259,12 +259,10 @@ func splitDomains(value string) []string {
 }
 
 func readDomainFile(path string) ([]string, error) {
-	resolved, err := filepath.Abs(filepath.Clean(path))
+	// filepath.Abs cleans the path, so no ".." traversal survives here.
+	resolved, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
-	}
-	if strings.Contains(resolved, "..") {
-		return nil, fmt.Errorf("domain file path must not contain ..: %s", path)
 	}
 	home, _ := os.UserHomeDir()
 	if home != "" && !strings.HasPrefix(strings.ToLower(resolved), strings.ToLower(home)+string(os.PathSeparator)) {

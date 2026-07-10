@@ -36,17 +36,26 @@ func (c Config) ResolveWithOptions(binDir, listsDir string, opts settings.Runtim
 var configsJSON []byte
 
 func All() []Config {
-	raw := configsJSON
+	// A malformed or empty external override must not leave sieve with zero
+	// configs — fall back to the embedded set instead.
 	for _, candidate := range externalConfigPaths() {
-		if data, err := os.ReadFile(candidate); err == nil {
-			raw = data
-			break
+		data, err := os.ReadFile(candidate)
+		if err != nil {
+			continue
+		}
+		if configs, err := parse(data); err == nil && len(configs) > 0 {
+			return configs
 		}
 	}
 
+	configs, _ := parse(configsJSON)
+	return configs
+}
+
+func parse(raw []byte) ([]Config, error) {
 	var parsed []Config
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil
+		return nil, err
 	}
 
 	configs := make([]Config, len(parsed))
@@ -54,7 +63,7 @@ func All() []Config {
 		configs[i].Name = parsed[i].Name
 		configs[i].Args = append([]string(nil), parsed[i].Args...)
 	}
-	return configs
+	return configs, nil
 }
 
 func externalConfigPaths() []string {

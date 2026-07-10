@@ -157,7 +157,7 @@ func (m Manager) download(ctx context.Context, url string, expectedSize int64, p
 	if err != nil {
 		return "", err
 	}
-	defer tmp.Close()
+	tmpName := tmp.Name()
 
 	writer := &progressWriter{
 		report: func(current int64) {
@@ -170,12 +170,18 @@ func (m Manager) download(ctx context.Context, url string, expectedSize int64, p
 		},
 	}
 
+	// Close before Remove: Windows cannot delete a file that is still open.
 	if _, err := io.Copy(tmp, io.TeeReader(resp.Body, writer)); err != nil {
-		os.Remove(tmp.Name())
+		tmp.Close()
+		os.Remove(tmpName)
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
 		return "", err
 	}
 
-	return tmp.Name(), nil
+	return tmpName, nil
 }
 
 func (m Manager) hasRequiredDirs() bool {

@@ -3,6 +3,7 @@
 package selfupdate
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -40,11 +41,17 @@ func installUpdate(exe, downloaded string, restart bool) error {
 	_ = os.Remove(downloaded)
 
 	installed, err := fileHash(exe)
-	if err != nil {
-		return fmt.Errorf("verify installed executable: %w", err)
+	if err == nil && installed != expected {
+		err = errors.New("installed executable hash mismatch")
 	}
-	if installed != expected {
-		return fmt.Errorf("installed executable hash mismatch")
+	if err != nil {
+		// The freshly written exe is suspect — put the original back so the
+		// user is never left with a broken binary on disk.
+		_ = os.Remove(exe)
+		if restoreErr := os.Rename(backup, exe); restoreErr != nil {
+			return fmt.Errorf("verify installed executable: %w (and restore failed: %v)", err, restoreErr)
+		}
+		return fmt.Errorf("verify installed executable: %w", err)
 	}
 
 	scheduleBackupCleanup(backup)

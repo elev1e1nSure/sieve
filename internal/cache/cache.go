@@ -67,7 +67,9 @@ func (s *Store) Load() error {
 
 	var loaded Data
 	if err := json.Unmarshal(data, &loaded); err != nil {
-		return err
+		// A corrupt cache must not block sifting — it is a disposable
+		// optimization and gets rewritten by the next RecordResult.
+		loaded = Data{}
 	}
 
 	s.Data = loaded
