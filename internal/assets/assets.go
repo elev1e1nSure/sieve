@@ -45,6 +45,9 @@ type Info struct {
 	InstallDir string
 	BinDir     string
 	ListsDir   string
+	// Notice carries a non-fatal startup warning (e.g. release check failed,
+	// running on previously downloaded assets) for the TUI to display.
+	Notice string
 }
 
 func NewManager() Manager {
@@ -76,13 +79,25 @@ func (m Manager) Ensure(ctx context.Context, progress func(Progress)) (Info, err
 		return Info{}, err
 	}
 
+	localVersion, _ := os.ReadFile(m.VersionFile())
+	installed := strings.TrimSpace(string(localVersion))
+
 	latest, err := github.LatestRelease(ctx, m.client(), m.APIURL)
 	if err != nil {
+		// GitHub being unreachable (offline, blocked, rate-limited) must not
+		// prevent a run when a previous download is still intact.
+		if !errors.Is(err, context.Canceled) && m.hasRequiredDirs() {
+			if listErr := ensureUserListFiles(m.ListsDir()); listErr != nil {
+				return Info{}, listErr
+			}
+			info := m.info(installed, false)
+			info.Notice = fmt.Sprintf("release check failed (%v) — using local assets", err)
+			return info, nil
+		}
 		return Info{}, fmt.Errorf("flowseal release: %w", err)
 	}
 
-	localVersion, _ := os.ReadFile(m.VersionFile())
-	if strings.TrimSpace(string(localVersion)) == latest.TagName && m.hasRequiredDirs() {
+	if installed == latest.TagName && m.hasRequiredDirs() {
 		if err := ensureUserListFiles(m.ListsDir()); err != nil {
 			return Info{}, err
 		}

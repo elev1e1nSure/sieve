@@ -330,6 +330,9 @@ func (m Model) handleAssetUpdate(msg assetUpdateMsg) (Model, tea.Cmd) {
 		m.refreshBody()
 		return m, nil
 	}
+	if msg.info.Notice != "" {
+		m.ui.startupNotices = append(m.ui.startupNotices, msg.info.Notice)
+	}
 	report, err := m.app.Settings.Apply(m.ctx, msg.info.ListsDir)
 	if err != nil {
 		m.ui.state = StateNoLuck
