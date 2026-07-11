@@ -56,6 +56,7 @@ type Model struct {
 type uiState struct {
 	state          State
 	spinner        spinner.Model
+	frame          int
 	viewport       viewport.Model
 	rawLogMode     bool
 	startupNotices []string
@@ -177,6 +178,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.ui.spinner, cmd = m.ui.spinner.Update(msg)
+		m.ui.frame++
 		m.refreshBody()
 		return m, cmd
 	case assetUpdateMsg:

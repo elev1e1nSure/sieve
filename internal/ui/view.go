@@ -21,7 +21,7 @@ func (m Model) View() string {
 
 	header := lipgloss.JoinHorizontal(
 		lipgloss.Center,
-		dotStyle.Render("●")+" "+titleStyle.Render("sieve"),
+		m.brandMark()+" "+titleStyle.Render("sieve"),
 		" ",
 		versionStyle.Render(version.Version),
 		" ",
@@ -68,6 +68,7 @@ func (m Model) updatingContent() string {
 	if m.flow.progress.Total > 0 {
 		lines := []string{
 			title,
+			m.phaseLine(),
 			keyValue("phase", m.flow.progress.Phase),
 			keyValue("status", m.flow.progress.Message),
 			progressLine(m.flow.progress.Current, m.flow.progress.Total),
@@ -78,8 +79,10 @@ func (m Model) updatingContent() string {
 
 	lines := []string{
 		title,
+		m.phaseLine(),
 		keyValue("phase", fallback(m.flow.progress.Phase, "starting")),
 		keyValue("status", fallback(m.flow.progress.Message, "preparing local cache")),
+		indeterminateLine(m.ui.frame),
 	}
 
 	return strings.Join(m.withStartupNotices(lines), "\n")
@@ -88,6 +91,7 @@ func (m Model) updatingContent() string {
 func (m Model) testingContent() string {
 	lines := []string{
 		sectionTitleStyle.Render(m.ui.spinner.View() + " Testing configs"),
+		m.phaseLine(),
 		keyValue("current", fallback(m.flow.currentConfig, "starting")),
 		keyValue("progress", fmt.Sprintf("%d/%d", m.flow.configIndex, m.flow.configTotal)),
 		progressLine(int64(m.flow.configIndex), int64(m.flow.configTotal)),
@@ -97,7 +101,7 @@ func (m Model) testingContent() string {
 }
 
 func (m Model) logContent() string {
-	header := successStyle.Render("running") + " " + valueStyle.Render(m.flow.runningConfig) + " " + mutedStyle.Render(m.uptime())
+	header := m.liveIndicator() + " " + valueStyle.Render(m.flow.runningConfig) + " " + mutedStyle.Render(m.uptime())
 
 	if len(m.flow.logs) == 0 {
 		return strings.Join([]string{
@@ -197,6 +201,50 @@ func (m Model) stateBadge() string {
 	}
 }
 
+func (m Model) brandMark() string {
+	if m.ui.state == StateRunning {
+		return liveDotStyle.Foreground(livePulseColor(m.ui.frame)).Render("●")
+	}
+	if m.ui.state == StateUpdating || m.ui.state == StateTesting || m.ui.state == StateClosing {
+		return dotStyle.Foreground(pulseColor(m.ui.frame, colorRustHi)).Render("●")
+	}
+	return dotStyle.Render("●")
+}
+
+func (m Model) liveIndicator() string {
+	return liveDotStyle.Foreground(livePulseColor(m.ui.frame)).Render("●") + " " + successStyle.Render("running")
+}
+
+// phaseLine keeps the current operation legible at a glance without turning
+// the single-screen flow into a dashboard.
+func (m Model) phaseLine() string {
+	stages := []struct {
+		label string
+		state State
+	}{
+		{"assets", StateUpdating},
+		{"testing", StateTesting},
+		{"ready", StateRunning},
+	}
+
+	parts := make([]string, 0, len(stages)*2-1)
+	for i, stage := range stages {
+		if i > 0 {
+			parts = append(parts, phaseWireStyle.Render("──"))
+		}
+		style := mutedStyle
+		glyph := "○"
+		if m.ui.state > stage.state {
+			style, glyph = successStyle, "✓"
+		} else if m.ui.state == stage.state {
+			style, glyph = phaseActiveStyle.Foreground(pulseColor(m.ui.frame, colorRustHi)), "●"
+		}
+		parts = append(parts, style.Render(glyph+" "+stage.label))
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Left, parts...)
+}
+
 func keyValue(key, value string) string {
 	return labelStyle.Render(key) + " " + valueStyle.Render(value)
 }
@@ -251,6 +299,27 @@ func progressLine(current, total int64) string {
 	return labelStyle.Render("progress") + " " + bar + mutedStyle.Render(fmt.Sprintf(" %3d%%", current*100/total))
 }
 
+func indeterminateLine(frame int) string {
+	const width = 24
+	position := (frame / 2) % width
+	bar := progressEmptyStyle.Render(strings.Repeat("░", position)) + progressCometStyle.Render("▰") + progressEmptyStyle.Render(strings.Repeat("░", width-position-1))
+	return labelStyle.Render("progress") + " " + bar + mutedStyle.Render(" checking")
+}
+
+func pulseColor(frame int, bright lipgloss.Color) lipgloss.Color {
+	if frame%2 == 0 {
+		return bright
+	}
+	return colorRust
+}
+
+func livePulseColor(frame int) lipgloss.Color {
+	if frame%2 == 0 {
+		return colorSuccess
+	}
+	return colorFgDim
+}
+
 // progressComet renders the filled portion of the bar with a brighter
 // leading edge, like a comet head, to read as motion rather than a static fill.
 func progressComet(filled string) string {
@@ -296,6 +365,12 @@ var (
 				Foreground(colorWire)
 	dotStyle = lipgloss.NewStyle().
 			Foreground(colorRust)
+	liveDotStyle = lipgloss.NewStyle().
+			Bold(true)
+	phaseActiveStyle = lipgloss.NewStyle().
+				Bold(true)
+	phaseWireStyle = lipgloss.NewStyle().
+			Foreground(colorWire)
 	panelStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(colorWire).

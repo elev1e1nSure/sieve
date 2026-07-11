@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -110,6 +111,7 @@ type LauncherModel struct {
 	editRow     int
 	action      maintenanceAction
 	spinner     spinner.Model
+	frame       int
 	report      maintenance.Report
 	err         error
 }
@@ -123,6 +125,8 @@ type maintenanceDoneMsg struct {
 	report maintenance.Report
 	err    error
 }
+
+type launcherPulseMsg time.Time
 
 func NewLauncher(ctx context.Context, store settings.Store, runtime settings.RuntimeOptions, service maintenance.Service) LauncherModel {
 	input := textinput.New()
@@ -142,7 +146,7 @@ func NewLauncher(ctx context.Context, store settings.Store, runtime settings.Run
 	}
 }
 
-func (m LauncherModel) Init() tea.Cmd { return nil }
+func (m LauncherModel) Init() tea.Cmd { return nextLauncherPulse() }
 
 func (m LauncherModel) Choice() LauncherChoice { return m.choice }
 
@@ -151,6 +155,10 @@ func (m LauncherModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = size.Width, size.Height
 		m.input.Width = max(20, min(70, size.Width-12))
 		return m, nil
+	}
+	if _, ok := msg.(launcherPulseMsg); ok {
+		m.frame++
+		return m, nextLauncherPulse()
 	}
 
 	if m.page == launcherEdit {
@@ -382,7 +390,7 @@ func (m *LauncherModel) startAction() (tea.Model, tea.Cmd) {
 
 func (m LauncherModel) View() string {
 	header := lipgloss.JoinHorizontal(lipgloss.Center,
-		dotStyle.Render("●")+" "+titleStyle.Render("sieve"), " ", versionStyle.Render(version.Version))
+		launcherMark(m.frame)+" "+titleStyle.Render("sieve"), " ", versionStyle.Render(version.Version))
 	body := ""
 	switch m.page {
 	case launcherMenu:
@@ -404,12 +412,26 @@ func (m LauncherModel) View() string {
 }
 
 func (m LauncherModel) menuView() string {
-	rows := []string{"Start sifting", "Settings"}
-	lines := []string{sectionTitleStyle.Render("Choose an action")}
+	rows := []struct {
+		label  string
+		detail string
+	}{
+		{"Start sifting", "find a working route"},
+		{"Settings", "tune the next run"},
+	}
+	lines := []string{sectionTitleStyle.Render("Choose an action"), mutedStyle.Render("quietly test, keep the first route that holds")}
 	for i, row := range rows {
-		lines = append(lines, selectableRow(i == m.menuCursor, row, ""))
+		lines = append(lines, selectableRow(i == m.menuCursor, row.label, row.detail))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func nextLauncherPulse() tea.Cmd {
+	return tea.Tick(700*time.Millisecond, func(t time.Time) tea.Msg { return launcherPulseMsg(t) })
+}
+
+func launcherMark(frame int) string {
+	return dotStyle.Foreground(pulseColor(frame, colorRustHi)).Render("●")
 }
 
 func (m LauncherModel) settingsView() string {
