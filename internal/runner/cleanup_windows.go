@@ -184,14 +184,17 @@ func cleanupSystem() (cleanupErr error) {
 	return waitForServiceDeletion(manager, cleanupTimeout)
 }
 
-// stopService drives the WinDivert driver service to Stopped. The SCM answers
-// ERROR_SERVICE_CANNOT_ACCEPT_CTRL while the driver sits in a pending state —
-// exactly the window right after winws.exe is killed and the kernel is still
-// tearing its handle down — so that answer is retried rather than reported as
-// a foreign app holding the driver.
+// stopService drives the WinDivert driver service to Stopped, judging success
+// purely from Query()'s reported state rather than from Control(Stop)'s own
+// return value. The SCM rejects a stop control (ERROR_SERVICE_CANNOT_ACCEPT_CTRL)
+// while the driver sits in a pending state — exactly the window right after
+// winws.exe is killed and the kernel is still tearing its handle down — and
+// that rejection reason isn't reliably distinguishable at this layer from a
+// foreign app genuinely holding the driver open. Treating every non-Stopped
+// outcome the same and letting the poll loop run out the clock avoids
+// misreporting one as the other.
 func stopService(service *mgr.Service, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	busy := false
 	for {
 		status, err := service.Query()
 		if err != nil {
@@ -203,15 +206,8 @@ func stopService(service *mgr.Service, timeout time.Duration) error {
 		// A stop is already in flight; sending another control would only draw
 		// the same rejection.
 		if status.State != svc.StopPending {
-			if _, err := service.Control(svc.Stop); err != nil {
-				switch {
-				case errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE):
-					return nil
-				case errors.Is(err, windows.ERROR_SERVICE_CANNOT_ACCEPT_CTRL):
-					busy = true
-				default:
-					return fmt.Errorf("WinDivert refused to stop; another VPN, DPI bypass, or traffic-filtering app may be using it: %w", err)
-				}
+			if _, err := service.Control(svc.Stop); err != nil && errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
+				return nil
 			}
 		}
 
@@ -221,10 +217,7 @@ func stopService(service *mgr.Service, timeout time.Duration) error {
 		time.Sleep(pollInterval)
 	}
 
-	if busy {
-		return fmt.Errorf("WinDivert stayed busy for %s and never accepted a stop request; another VPN, DPI bypass, or traffic-filtering app may be using it", timeout)
-	}
-	return fmt.Errorf("WinDivert is still in use after %s; close other VPN, DPI bypass, or traffic-filtering apps and run sieve --stop again", timeout)
+	return fmt.Errorf("WinDivert did not stop within %s; it may still be in use by another VPN, DPI bypass, or traffic-filtering app", timeout)
 }
 
 func waitForServiceDeletion(manager *mgr.Mgr, timeout time.Duration) error {

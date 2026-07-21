@@ -96,11 +96,14 @@ func (r *Runner) Prepare(winwsPath string) error {
 	if _, err := terminateLegacyProcesses(winwsPath); err != nil {
 		return err
 	}
-	if err := cleanupSystem(); err != nil {
-		return err
+	err := cleanupSystem()
+	// A driver left loaded is tolerated (see CleanupError) and reported by the
+	// caller, not retried here: without this, every subsequent Stop() would
+	// redo the full stopService wait for the same already-known-stuck driver.
+	if err == nil || IsCleanupOnly(err) {
+		r.clean = true
 	}
-	r.clean = true
-	return nil
+	return err
 }
 
 func (r *Runner) Start(winwsPath string, args []string) (*Process, error) {
@@ -152,7 +155,7 @@ func (r *Runner) Start(winwsPath string, args []string) (*Process, error) {
 		group.Close()
 		_, legacyErr := terminateLegacyProcesses(winwsPath)
 		cleanupErr := cleanupSystem()
-		if legacyErr == nil && cleanupErr == nil {
+		if legacyErr == nil && (cleanupErr == nil || IsCleanupOnly(cleanupErr)) {
 			r.clean = true
 		}
 		return nil, errors.Join(fmt.Errorf("assign winws process group: %w", err), legacyErr, cleanupErr)
@@ -184,7 +187,7 @@ func (r *Runner) Stop() error {
 	}
 	_, legacyErr := terminateLegacyProcesses(r.winwsPath)
 	cleanupErr := cleanupSystem()
-	if legacyErr == nil && cleanupErr == nil {
+	if legacyErr == nil && (cleanupErr == nil || IsCleanupOnly(cleanupErr)) {
 		r.clean = true
 	}
 
