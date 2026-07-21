@@ -419,7 +419,7 @@ func (m LauncherModel) menuView() string {
 		{"Start sifting", "find a working route"},
 		{"Settings", "tune the next run"},
 	}
-	lines := []string{sectionTitleStyle.Render("Choose an action"), mutedStyle.Render("quietly test, keep the first route that holds")}
+	lines := []string{sectionTitleStyle.Render("Choose an action")}
 	for i, row := range rows {
 		lines = append(lines, selectableRow(i == m.menuCursor, row.label, row.detail))
 	}
