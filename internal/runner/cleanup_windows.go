@@ -18,8 +18,12 @@ import (
 const (
 	winDivertService = "WinDivert"
 	cleanupTimeout   = 5 * time.Second
-	pollInterval     = 50 * time.Millisecond
-	maxWindowsPath   = 32768
+	// The driver only leaves its pending states once the kernel has finished
+	// closing every WinDivert handle, which can outlast the process that held
+	// them; give it more room than the plain service-deletion wait.
+	serviceStopTimeout = 15 * time.Second
+	pollInterval       = 50 * time.Millisecond
+	maxWindowsPath     = 32768
 )
 
 func terminateLegacyProcesses(winwsPath string) (bool, error) {
@@ -132,6 +136,15 @@ func equalPath(left, right string) bool {
 }
 
 func cleanupSystem() (cleanupErr error) {
+	// Registered first so it runs last: every failure below leaves the driver
+	// loaded, which callers that are merely preparing to start winws can treat
+	// as a warning instead of a hard stop.
+	defer func() {
+		if cleanupErr != nil {
+			cleanupErr = &CleanupError{Err: cleanupErr}
+		}
+	}()
+
 	manager, err := mgr.Connect()
 	if err != nil {
 		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
@@ -154,20 +167,9 @@ func cleanupSystem() (cleanupErr error) {
 		return fmt.Errorf("open %s service: %w", winDivertService, err)
 	}
 
-	status, err := service.Query()
-	if err != nil {
+	if err := stopService(service, serviceStopTimeout); err != nil {
 		service.Close()
-		return fmt.Errorf("query %s service: %w", winDivertService, err)
-	}
-	if status.State != svc.Stopped {
-		if _, err := service.Control(svc.Stop); err != nil && !errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
-			service.Close()
-			return fmt.Errorf("WinDivert refused to stop; another VPN, DPI bypass, or traffic-filtering app may be using it: %w", err)
-		}
-		if err := waitForServiceState(service, svc.Stopped, cleanupTimeout); err != nil {
-			service.Close()
-			return err
-		}
+		return err
 	}
 
 	deleteErr := service.Delete()
@@ -182,17 +184,45 @@ func cleanupSystem() (cleanupErr error) {
 	return waitForServiceDeletion(manager, cleanupTimeout)
 }
 
-func waitForServiceState(service *mgr.Service, want svc.State, timeout time.Duration) error {
+// stopService drives the WinDivert driver service to Stopped. The SCM answers
+// ERROR_SERVICE_CANNOT_ACCEPT_CTRL while the driver sits in a pending state —
+// exactly the window right after winws.exe is killed and the kernel is still
+// tearing its handle down — so that answer is retried rather than reported as
+// a foreign app holding the driver.
+func stopService(service *mgr.Service, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	busy := false
+	for {
 		status, err := service.Query()
 		if err != nil {
 			return fmt.Errorf("query %s service while stopping: %w", winDivertService, err)
 		}
-		if status.State == want {
+		if status.State == svc.Stopped {
 			return nil
 		}
+		// A stop is already in flight; sending another control would only draw
+		// the same rejection.
+		if status.State != svc.StopPending {
+			if _, err := service.Control(svc.Stop); err != nil {
+				switch {
+				case errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE):
+					return nil
+				case errors.Is(err, windows.ERROR_SERVICE_CANNOT_ACCEPT_CTRL):
+					busy = true
+				default:
+					return fmt.Errorf("WinDivert refused to stop; another VPN, DPI bypass, or traffic-filtering app may be using it: %w", err)
+				}
+			}
+		}
+
+		if !time.Now().Before(deadline) {
+			break
+		}
 		time.Sleep(pollInterval)
+	}
+
+	if busy {
+		return fmt.Errorf("WinDivert stayed busy for %s and never accepted a stop request; another VPN, DPI bypass, or traffic-filtering app may be using it", timeout)
 	}
 	return fmt.Errorf("WinDivert is still in use after %s; close other VPN, DPI bypass, or traffic-filtering apps and run sieve --stop again", timeout)
 }

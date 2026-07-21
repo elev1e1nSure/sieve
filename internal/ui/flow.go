@@ -42,6 +42,10 @@ func flowFinished() flowUpdateMsg {
 	return flowUpdateMsg{kind: flowDone, done: true}
 }
 
+func cleanupNotice(err error) flowUpdateMsg {
+	return flowUpdateMsg{kind: flowNotice, log: err.Error()}
+}
+
 func (f Flow) Run(updates chan<- flowUpdateMsg) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -59,8 +63,11 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 	total := len(sorted)
 	winwsPath := filepath.Join(f.Assets.BinDir, "winws.exe")
 	if err := f.Runner.Prepare(winwsPath); err != nil {
-		updates <- noLuck(err)
-		return
+		if !runner.IsCleanupOnly(err) {
+			updates <- noLuck(err)
+			return
+		}
+		updates <- cleanupNotice(err)
 	}
 	startFailures := 0
 	var firstStartErr error
@@ -147,8 +154,11 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		}
 
 		if stopErr := f.Runner.Stop(); stopErr != nil {
-			updates <- noLuck(withProcessOutput(stopErr, drainProcessOutput(process, 3)))
-			return
+			if !runner.IsCleanupOnly(stopErr) {
+				updates <- noLuck(withProcessOutput(stopErr, drainProcessOutput(process, 3)))
+				return
+			}
+			updates <- cleanupNotice(stopErr)
 		}
 	}
 
@@ -373,6 +383,8 @@ func (m Model) handleFlowUpdate(msg flowUpdateMsg) Model {
 		m.ui.state = StateNoLuck
 		m.flow.err = msg.err
 		m.flow.process = nil
+	case flowNotice:
+		m.ui.startupNotices = append(m.ui.startupNotices, msg.log)
 	case flowLog:
 		m.flow.logs = append(m.flow.logs, msg.log)
 		if len(m.flow.logs) > maxLogLines {

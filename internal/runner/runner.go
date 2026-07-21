@@ -10,6 +10,38 @@ import (
 	"sync"
 )
 
+// CleanupError marks a WinDivert driver that could not be unloaded. WinDivert
+// tolerates several concurrent clients, so a driver left loaded by another app
+// does not by itself keep winws from running: callers that are only preparing
+// to start a config report it and carry on, letting the config itself decide
+// whether it works.
+type CleanupError struct{ Err error }
+
+func (e *CleanupError) Error() string { return e.Err.Error() }
+func (e *CleanupError) Unwrap() error { return e.Err }
+
+// IsCleanupOnly reports whether err is made up exclusively of CleanupError,
+// i.e. the driver stayed loaded but nothing else about the operation failed.
+// It walks errors.Join trees rather than using errors.Is, which would also
+// match a joined error that carries a genuine failure alongside the cleanup.
+func IsCleanupOnly(err error) bool {
+	switch typed := err.(type) {
+	case nil:
+		return false
+	case *CleanupError:
+		return true
+	case interface{ Unwrap() []error }:
+		for _, sub := range typed.Unwrap() {
+			if !IsCleanupOnly(sub) {
+				return false
+			}
+		}
+		return true
+	default:
+		return false
+	}
+}
+
 type Runner struct {
 	mu        sync.Mutex
 	active    *Process
