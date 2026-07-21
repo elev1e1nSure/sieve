@@ -252,12 +252,34 @@ func (p *Process) scan(reader io.Reader) {
 	defer p.scansWg.Done()
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
-		select {
-		case p.logs <- scanner.Text():
-		case <-p.stopCh:
+		if !p.publish(scanner.Text()) {
 			return
+		}
+	}
+}
+
+// publish hands a log line to the consumer, reporting whether scanning should
+// continue. Sending must never block: nobody drains the channel while a
+// candidate config is under connectivity test, and wait() joins the scanners
+// before it closes done — a blocked scanner would hang the whole flow. When
+// the buffer is full the oldest line goes instead of the newest, so the window
+// that survives is the one that explains what winws is doing now.
+func (p *Process) publish(line string) bool {
+	for {
+		select {
+		case p.logs <- line:
+			return true
+		case <-p.stopCh:
+			return false
 		default:
-			// Process output must never block process shutdown.
+		}
+
+		select {
+		case <-p.logs:
+		case <-p.stopCh:
+			return false
+		default:
+			// Drained by the consumer in the meantime; retry the send.
 		}
 	}
 }
