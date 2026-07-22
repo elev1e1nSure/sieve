@@ -151,7 +151,7 @@ func (m Model) closingContent() string {
 		sectionTitleStyle.Render(m.ui.spinner.View() + " Cleaning up"),
 		keyValue("reason", fallback(m.ui.exitReason, "shutdown requested")),
 		cleanLog("winws", "stopping process"),
-		cleanLog("filters", "removing WinDivert services"),
+		cleanLog("filters", "releasing network capture"),
 		cleanLog("exit", "closing session"),
 	}, "\n")
 }

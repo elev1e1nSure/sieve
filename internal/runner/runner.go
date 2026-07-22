@@ -10,38 +10,6 @@ import (
 	"sync"
 )
 
-// CleanupError marks a WinDivert driver that could not be unloaded. WinDivert
-// tolerates several concurrent clients, so a driver left loaded by another app
-// does not by itself keep winws from running: callers that are only preparing
-// to start a config report it and carry on, letting the config itself decide
-// whether it works.
-type CleanupError struct{ Err error }
-
-func (e *CleanupError) Error() string { return e.Err.Error() }
-func (e *CleanupError) Unwrap() error { return e.Err }
-
-// IsCleanupOnly reports whether err is made up exclusively of CleanupError,
-// i.e. the driver stayed loaded but nothing else about the operation failed.
-// It walks errors.Join trees rather than using errors.Is, which would also
-// match a joined error that carries a genuine failure alongside the cleanup.
-func IsCleanupOnly(err error) bool {
-	switch typed := err.(type) {
-	case nil:
-		return false
-	case *CleanupError:
-		return true
-	case interface{ Unwrap() []error }:
-		for _, sub := range typed.Unwrap() {
-			if !IsCleanupOnly(sub) {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
-	}
-}
-
 type Runner struct {
 	mu        sync.Mutex
 	active    *Process
@@ -96,14 +64,12 @@ func (r *Runner) Prepare(winwsPath string) error {
 	if _, err := terminateLegacyProcesses(winwsPath); err != nil {
 		return err
 	}
-	err := cleanupSystem()
-	// A driver left loaded is tolerated (see CleanupError) and reported by the
-	// caller, not retried here: without this, every subsequent Stop() would
-	// redo the full stopService wait for the same already-known-stuck driver.
-	if err == nil || IsCleanupOnly(err) {
-		r.clean = true
-	}
-	return err
+
+	// WinDivert is a global, shared driver. Closing the old winws process
+	// releases this app's handles; stopping or deleting the service here would
+	// disrupt unrelated WinDivert clients and is not needed before a new start.
+	r.clean = true
+	return nil
 }
 
 func (r *Runner) Start(winwsPath string, args []string) (*Process, error) {
@@ -154,11 +120,10 @@ func (r *Runner) Start(winwsPath string, args []string) (*Process, error) {
 		_ = cmd.Wait()
 		group.Close()
 		_, legacyErr := terminateLegacyProcesses(winwsPath)
-		cleanupErr := cleanupSystem()
-		if legacyErr == nil && (cleanupErr == nil || IsCleanupOnly(cleanupErr)) {
+		if legacyErr == nil {
 			r.clean = true
 		}
-		return nil, errors.Join(fmt.Errorf("assign winws process group: %w", err), legacyErr, cleanupErr)
+		return nil, errors.Join(fmt.Errorf("assign winws process group: %w", err), legacyErr)
 	}
 
 	process.scansWg.Add(2)
@@ -186,12 +151,11 @@ func (r *Runner) Stop() error {
 		r.active = nil
 	}
 	_, legacyErr := terminateLegacyProcesses(r.winwsPath)
-	cleanupErr := cleanupSystem()
-	if legacyErr == nil && (cleanupErr == nil || IsCleanupOnly(cleanupErr)) {
+	if stopErr == nil && legacyErr == nil {
 		r.clean = true
 	}
 
-	return errors.Join(stopErr, legacyErr, cleanupErr)
+	return errors.Join(stopErr, legacyErr)
 }
 
 func (p *Process) Logs() <-chan string {

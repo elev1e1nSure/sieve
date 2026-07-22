@@ -11,19 +11,11 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
-	"golang.org/x/sys/windows/svc"
-	"golang.org/x/sys/windows/svc/mgr"
 )
 
 const (
-	winDivertService = "WinDivert"
-	cleanupTimeout   = 5 * time.Second
-	// The driver only leaves its pending states once the kernel has finished
-	// closing every WinDivert handle, which can outlast the process that held
-	// them; give it more room than the plain service-deletion wait.
-	serviceStopTimeout = 15 * time.Second
-	pollInterval       = 50 * time.Millisecond
-	maxWindowsPath     = 32768
+	cleanupTimeout = 5 * time.Second
+	maxWindowsPath = 32768
 )
 
 func terminateLegacyProcesses(winwsPath string) (bool, error) {
@@ -133,106 +125,4 @@ func equalPath(left, right string) bool {
 		right = rightPath
 	}
 	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
-}
-
-func cleanupSystem() (cleanupErr error) {
-	// Registered first so it runs last: every failure below leaves the driver
-	// loaded, which callers that are merely preparing to start winws can treat
-	// as a warning instead of a hard stop.
-	defer func() {
-		if cleanupErr != nil {
-			cleanupErr = &CleanupError{Err: cleanupErr}
-		}
-	}()
-
-	manager, err := mgr.Connect()
-	if err != nil {
-		if errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-			return errors.New("windows denied access to service cleanup; run sieve as administrator")
-		}
-		return fmt.Errorf("connect to Windows service manager: %w", err)
-	}
-	defer func() {
-		cleanupErr = errors.Join(cleanupErr, manager.Disconnect())
-	}()
-
-	service, err := manager.OpenService(winDivertService)
-	if err != nil {
-		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
-			return nil
-		}
-		if errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
-			return waitForServiceDeletion(manager, cleanupTimeout)
-		}
-		return fmt.Errorf("open %s service: %w", winDivertService, err)
-	}
-
-	if err := stopService(service, serviceStopTimeout); err != nil {
-		service.Close()
-		return err
-	}
-
-	deleteErr := service.Delete()
-	closeErr := service.Close()
-	if deleteErr != nil && !errors.Is(deleteErr, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
-		return fmt.Errorf("delete %s service: %w", winDivertService, deleteErr)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("close %s service: %w", winDivertService, closeErr)
-	}
-
-	return waitForServiceDeletion(manager, cleanupTimeout)
-}
-
-// stopService drives the WinDivert driver service to Stopped, judging success
-// purely from Query()'s reported state rather than from Control(Stop)'s own
-// return value. The SCM rejects a stop control (ERROR_SERVICE_CANNOT_ACCEPT_CTRL)
-// while the driver sits in a pending state — exactly the window right after
-// winws.exe is killed and the kernel is still tearing its handle down — and
-// that rejection reason isn't reliably distinguishable at this layer from a
-// foreign app genuinely holding the driver open. Treating every non-Stopped
-// outcome the same and letting the poll loop run out the clock avoids
-// misreporting one as the other.
-func stopService(service *mgr.Service, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		status, err := service.Query()
-		if err != nil {
-			return fmt.Errorf("query %s service while stopping: %w", winDivertService, err)
-		}
-		if status.State == svc.Stopped {
-			return nil
-		}
-		// A stop is already in flight; sending another control would only draw
-		// the same rejection.
-		if status.State != svc.StopPending {
-			if _, err := service.Control(svc.Stop); err != nil && errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) {
-				return nil
-			}
-		}
-
-		if !time.Now().Before(deadline) {
-			break
-		}
-		time.Sleep(pollInterval)
-	}
-
-	return fmt.Errorf("WinDivert did not stop within %s; it may still be in use by another VPN, DPI bypass, or traffic-filtering app", timeout)
-}
-
-func waitForServiceDeletion(manager *mgr.Mgr, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		service, err := manager.OpenService(winDivertService)
-		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
-			return nil
-		}
-		if err == nil {
-			service.Close()
-		} else if !errors.Is(err, windows.ERROR_SERVICE_MARKED_FOR_DELETE) {
-			return fmt.Errorf("verify %s service deletion: %w", winDivertService, err)
-		}
-		time.Sleep(pollInterval)
-	}
-	return fmt.Errorf("WinDivert remained loaded after %s; another application is still holding the driver", timeout)
 }

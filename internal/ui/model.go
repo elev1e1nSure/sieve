@@ -93,7 +93,6 @@ const (
 	flowRunning
 	flowNoLuck
 	flowLog
-	flowNotice
 	flowDone
 )
 
@@ -201,12 +200,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ask BubbleTea to repaint the whole screen.
 		return m, tea.ClearScreen
 	case cleanupDoneMsg:
-		// A driver left loaded is not a failed run: winws is down either way,
-		// and the next start reuses or unloads it. Only real stop failures
-		// deserve a non-zero exit.
-		if !runner.IsCleanupOnly(msg.err) {
-			m.ui.exitErr = errors.Join(m.ui.exitErr, msg.err)
-		}
+		m.ui.exitErr = errors.Join(m.ui.exitErr, msg.err)
 		m.ui.state = StateBye
 		return m, tea.Quit
 	}

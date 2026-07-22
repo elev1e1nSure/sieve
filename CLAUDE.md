@@ -53,7 +53,7 @@ Single-screen Bubble Tea state machine, not multi-page navigation. One `Model`/`
 - `internal/settings` — `RuntimeOptions` persisted to `%APPDATA%\sieve\settings.json` (ipset mode, domains, game filter, cache toggle) plus the ipset/domain list file manipulation (`lists.go`)
 - `internal/maintenance` — `Service` behind both the launcher's maintenance menu and the one-shot CLI flags (stop, reset cache, update ipset, self-update); `diagnostics_windows.go`/`diagnostics_other.go` hold the `--diagnostics`/`--status`/`--clear-discord-cache` platform-specific checks (build-tag split, like `runner`)
 - `internal/tray` — Windows system-tray icon via raw Win32 calls; only active when sieve owns its console (double-click launch), stubbed on other platforms
-- `internal/runner` — starts/stops `winws.exe`, streams its stdout/stderr as a log channel, platform-specific WinDivert/service cleanup
+- `internal/runner` — starts/stops Sieve-owned `winws.exe` processes and streams their stdout/stderr; it intentionally does not stop/delete the global WinDivert service because other applications may share it
 - `internal/tester` — HTTP reachability check against `discord.com` and `www.youtube.com`, used to judge whether a running config actually works
 - `internal/selfupdate` — checks the latest sieve GitHub release, matches a compatible asset by name (`sieve-windows-amd64.exe` preferred, `sieve.exe` as legacy fallback — see naming note below), then swaps the running executable in place (rename aside → copy → hash-verify) and optionally relaunches into the same console; the `.old` backup is cleaned up on the next start
 - `internal/admin`, `internal/paths` — UAC elevation and the `%APPDATA%\sieve` install dir, each with `_windows.go`/`_other.go` split

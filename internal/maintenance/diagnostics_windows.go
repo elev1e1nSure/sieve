@@ -215,22 +215,15 @@ func hostsContainsYouTube() bool {
 	return strings.Contains(lower, "youtube.com") || strings.Contains(lower, "youtu.be")
 }
 
-func winDivertConflictItem(autoFix bool) Item {
-	if processRunning("winws.exe") || !serviceRunning("WinDivert") {
-		return Item{Status: "ok", Name: "WinDivert", Message: "no orphaned active service found"}
+func winDivertConflictItem(_ bool) Item {
+	if processRunning("winws.exe") {
+		return Item{Status: "ok", Name: "WinDivert", Message: "driver is in use by winws.exe"}
 	}
-
-	if !autoFix {
-		return Item{Status: "warn", Name: "WinDivert", Message: "service is active while winws.exe is not running; run diagnostics with --fix"}
-	}
-
-	_ = run("net", "stop", "WinDivert")
-	_ = run("sc", "delete", "WinDivert")
 	if serviceRunning("WinDivert") {
-		return Item{Status: "fail", Name: "WinDivert", Message: "failed to remove orphaned service"}
+		return Item{Status: "ok", Name: "WinDivert", Message: "driver is loaded and may be shared; left untouched"}
 	}
 
-	return Item{Status: "fixed", Name: "WinDivert", Message: "removed orphaned service"}
+	return Item{Status: "ok", Name: "WinDivert", Message: "driver is not active"}
 }
 
 func conflictingServiceItems(autoFix bool) []Item {
@@ -257,11 +250,6 @@ func conflictingServiceItems(autoFix bool) []Item {
 			items = append(items, Item{Status: "fixed", Name: name, Message: "deleted conflicting service"})
 		}
 	}
-	_ = run("net", "stop", "WinDivert")
-	_ = run("sc", "delete", "WinDivert")
-	_ = run("net", "stop", "WinDivert14")
-	_ = run("sc", "delete", "WinDivert14")
-
 	return items
 }
 

@@ -140,8 +140,7 @@ func StopAll(winwsPath string) (StopResult, error) {
 	legacyWinwsStopped, legacyWinwsErr := terminateLegacyProcesses(winwsPath)
 	result.Legacy = legacySieveStopped || legacyWinwsStopped
 
-	cleanupErr := cleanupSystem()
-	return result, errors.Join(sessionErr, legacySieveErr, legacyWinwsErr, cleanupErr)
+	return result, errors.Join(sessionErr, legacySieveErr, legacyWinwsErr)
 }
 
 func stopActiveSession() (StopResult, error) {

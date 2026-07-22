@@ -2,6 +2,7 @@ package assets
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/elev1e1nSure/sieve/internal/fsutil"
 	"github.com/elev1e1nSure/sieve/internal/github"
 	"github.com/elev1e1nSure/sieve/internal/paths"
 )
@@ -328,11 +330,53 @@ func replaceDirs(stagingDir, installDir string) error {
 		}
 
 		dst := filepath.Join(installDir, name)
-		if err := os.RemoveAll(dst); err != nil {
+		if err := mergeDir(src, dst); err != nil {
 			return err
 		}
-		if err := os.Rename(src, dst); err != nil {
+	}
+
+	return nil
+}
+
+// mergeDir leaves identical installed files in place. WinDivert's loaded
+// driver file can be locked by Windows even after winws exits, and replacing
+// that unchanged file made otherwise harmless Flowseal updates fail.
+func mergeDir(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := mergeDir(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
 			return err
+		}
+		installed, err := os.ReadFile(dstPath)
+		if err == nil && bytes.Equal(installed, data) {
+			continue
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+
+		if err := fsutil.WriteAtomic(dstPath, data); err != nil {
+			return fmt.Errorf("replace asset %s: %w", dstPath, err)
+		}
+		if info, err := entry.Info(); err == nil {
+			_ = os.Chmod(dstPath, info.Mode())
 		}
 	}
 
