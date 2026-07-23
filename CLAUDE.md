@@ -71,3 +71,12 @@ The Scoop bucket (`elev1e1nSure/scoop-bucket`, separate repo) has its own GitHub
 ### Voice/copy
 
 User-facing copy (README, `--help`, TUI chrome — title, empty/idle/exit states) intentionally carries a light literary tone built around the "sifting" metaphor, matching the project website. Diagnostic/error output (Windows service checks, self-update errors, etc.) stays plainly technical — don't extend the literary tone into troubleshooting text where clarity matters more than voice.
+
+## Conventions
+
+- **Commits:** Conventional Commits with mandatory scope (`type(scope): description`). Types: feat, fix, chore, docs, style, refactor, perf, test, ci, build. Message in English, imperative, no trailing period.
+- **Code comments:** English only, explain why not what.
+- **Errors:** Go errors are values — never panic. Return errors, handle them explicitly.
+- **Platform code:** Use build tags (`_windows.go`/`_other.go`), not runtime checks.
+- **Linting:** golangci-lint (govet, staticcheck, errcheck, unused, gosimple, ineffassign). Run `just lint` before committing.
+- **Formatting:** gofmt. Run `just fmt` before committing.
