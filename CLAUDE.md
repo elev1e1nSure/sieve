@@ -26,9 +26,10 @@ sieve is a portable Windows TUI (Bubble Tea + Lip Gloss) that automates running 
 
 ### Entry point and flag/TUI split
 
-`main.go` → `internal/cli.Execute()` is the only entry point. The `internal/cli` package is split into `root.go` (command wiring, `runApp`/`runSieve`, auto-update), `command.go` (flag mode), and `print.go` (styled terminal output). The root cobra command branches on whether any flags were explicitly set (`hasChangedFlags`):
-- **No flags** → `runApp()`: requires admin (self-elevates via `internal/admin` if not), runs `autoUpdate()` (self-update check, see below), loads settings, shows the launcher menu (`ui.LauncherModel`: start sifting / settings / maintenance actions), and only then runs the sifting TUI (`runSieve`). This is the actual DPI-bypass flow.
-- **Any flag set** → `runCommandMode()`: flags either persist to `settings.json` via `internal/settings.Store` (e.g. `--ipset`, `--game`, `--domain`, `--no-cache`) or perform one one-shot maintenance action via `internal/maintenance.Service` and exit (`--update`, `--stop`, `--reset-cache`, `--update-ipset`, `--diagnostics`, `--status`, `--clear-discord-cache`). Flags never start the TUI.
+`main.go` → `internal/cli.Execute()` is the only entry point. The `internal/cli` package is split into `root.go` (command wiring, `runAppMode`/`runSieve`, auto-update), `command.go` (flag mode), `print.go` (styled terminal output), and `root_test.go`. The cobra command structure handles execution:
+- **No flags / no subcommand (`sieve`)** → `runAppMode(ctx, false)`: requires admin (self-elevates via `internal/admin` if not), runs `autoUpdate()` (self-update check, see below), loads settings, shows the launcher menu (`ui.LauncherModel`: start sifting / settings / maintenance actions), and then runs the sifting TUI (`runSieve`).
+- **`run` subcommand (`sieve run`)** → `runAppMode(ctx, true)`: skips the interactive launcher menu completely and immediately starts config selection and bypass activation (`runSieve`).
+- **Any flag set without subcommand** → `runCommandMode()`: flags either persist to `settings.json` via `internal/settings.Store` (e.g. `--ipset`, `--game`, `--domain`, `--no-cache`) or perform one one-shot maintenance action via `internal/maintenance.Service` and exit (`--update`, `--stop`, `--reset-cache`, `--update-ipset`, `--diagnostics`, `--status`, `--clear-discord-cache`). Flags never start the TUI.
 
 ### `internal/ui` — the TUI
 

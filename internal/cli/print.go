@@ -22,10 +22,18 @@ func applyStyledTemplates(root *cobra.Command) {
 	})
 
 	root.SetUsageTemplate(`{{heading "Usage:"}}
-  {{.UseLine}}
-
+  {{.UseLine}}{{if .HasAvailableSubCommands}} [command]{{end}}
+{{if .HasAvailableSubCommands}}
+{{heading "Commands:"}}
+{{range .Commands}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
+  {{rpad .Name .NamePadding }} {{.Short}}
+{{end}}{{end}}{{end}}
 {{heading "Flags:"}}
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}
+{{if .HasAvailableInheritedFlags}}
+{{heading "Global Flags:"}}
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}
+{{end}}
 `)
 
 	root.SetHelpTemplate(`{{.Long}}

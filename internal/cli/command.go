@@ -144,6 +144,11 @@ func runtimeFlagsChanged(flags *pflag.FlagSet) bool {
 	return false
 }
 
+func isMaintenanceAction(opts options) bool {
+	return opts.update || opts.stop || opts.updateIPSet || opts.resetCache ||
+		opts.clearDiscordCache || opts.diagnostics || opts.status
+}
+
 func appendUnique(current []string, incoming ...string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(current)+len(incoming))

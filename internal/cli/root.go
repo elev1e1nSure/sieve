@@ -41,6 +41,18 @@ type options struct {
 func Execute() {
 	cobra.MousetrapHelpText = ""
 
+	root := newRootCommand(runAppMode)
+
+	if err := root.Execute(); err != nil {
+		// The TUI runs in the alt screen, so anything it rendered is gone by
+		// now — this print is the only durable record of what went wrong.
+		fmt.Fprintln(os.Stderr, failStyle.Render("✗")+" "+dedupErrorLines(err))
+		holdOwnConsole()
+		os.Exit(1)
+	}
+}
+
+func newRootCommand(runner func(ctx context.Context, skipLauncher bool) error) *cobra.Command {
 	opts := options{}
 	root := &cobra.Command{
 		Use:   "sieve",
@@ -56,11 +68,11 @@ func Execute() {
 				return runCommandMode(cmd.Context(), cmd.Flags(), opts)
 			}
 
-			return runApp(cmd.Context())
+			return runner(cmd.Context(), false)
 		},
 	}
 
-	flags := root.Flags()
+	flags := root.PersistentFlags()
 	flags.BoolVar(&opts.update, "update", false, "update sieve from the latest GitHub release and exit")
 	flags.BoolVar(&opts.stop, "stop", false, "force-stop the active sieve instance and its processes")
 	flags.IntVar(&opts.runtime.TestTimeout, "test-timeout", 0, "save connection test timeout in seconds")
@@ -76,15 +88,31 @@ func Execute() {
 	flags.BoolVar(&opts.fix, "fix", false, "allow diagnostics to fix known service/TCP timestamp issues")
 	flags.BoolVar(&opts.status, "status", false, "report whether sieve/winws is running and exit")
 
-	applyStyledTemplates(root)
+	runCmd := &cobra.Command{
+		Use:   "run",
+		Short: "Start config selection and activate bypass without launcher menu",
+		Long: "Starts config selection and activates the DPI bypass directly,\n" +
+			"skipping the interactive launcher menu.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if hasChangedFlags(cmd.Flags()) {
+				if isMaintenanceAction(opts) {
+					return runCommandMode(cmd.Context(), cmd.Flags(), opts)
+				}
+				if err := runCommandMode(cmd.Context(), cmd.Flags(), opts); err != nil {
+					return err
+				}
+			}
 
-	if err := root.Execute(); err != nil {
-		// The TUI runs in the alt screen, so anything it rendered is gone by
-		// now — this print is the only durable record of what went wrong.
-		fmt.Fprintln(os.Stderr, failStyle.Render("✗")+" "+dedupErrorLines(err))
-		holdOwnConsole()
-		os.Exit(1)
+			return runner(cmd.Context(), true)
+		},
 	}
+
+	root.AddCommand(runCmd)
+
+	applyStyledTemplates(root)
+	return root
 }
 
 // dedupErrorLines flattens a joined error into unique, indented lines;
@@ -128,7 +156,7 @@ func ensureAdmin() (bool, error) {
 	return false, nil
 }
 
-func runApp(ctx context.Context) (runErr error) {
+func runAppMode(ctx context.Context, skipLauncher bool) (runErr error) {
 	if elevated, err := ensureAdmin(); !elevated {
 		return err
 	}
@@ -154,17 +182,19 @@ func runApp(ctx context.Context) (runErr error) {
 		startupNotices = append(startupNotices, "update check skipped: "+err.Error())
 	}
 
-	launcherProgram := tea.NewProgram(
-		ui.NewLauncher(ctx, store, runtime, maintenance.NewService()),
-		tea.WithAltScreen(),
-	)
-	finalLauncher, err := launcherProgram.Run()
-	if err != nil {
-		return fmt.Errorf("failed to run launcher TUI: %w", err)
-	}
-	launcher, choseRun := finalLauncher.(ui.LauncherModel)
-	if !choseRun || launcher.Choice() != ui.LauncherRun {
-		return nil
+	if !skipLauncher {
+		launcherProgram := tea.NewProgram(
+			ui.NewLauncher(ctx, store, runtime, maintenance.NewService()),
+			tea.WithAltScreen(),
+		)
+		finalLauncher, err := launcherProgram.Run()
+		if err != nil {
+			return fmt.Errorf("failed to run launcher TUI: %w", err)
+		}
+		launcher, choseRun := finalLauncher.(ui.LauncherModel)
+		if !choseRun || launcher.Choice() != ui.LauncherRun {
+			return nil
+		}
 	}
 
 	if err := runSieve(ctx, startupNotices); err != nil {
