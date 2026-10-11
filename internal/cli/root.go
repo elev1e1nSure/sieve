@@ -226,6 +226,12 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 		return err
 	}
 
+	if changed, err := maintenance.EnsureTCPTimestamps(); err != nil {
+		startupNotices = append(startupNotices, err.Error()+" — ts-fooling strategies will fail")
+	} else if changed {
+		startupNotices = append(startupNotices, "TCP timestamps enabled for ts-fooling strategies")
+	}
+
 	cacheStore := cache.NewStore()
 	if runtime.NoCache {
 		cacheStore.Disabled = true

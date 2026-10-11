@@ -24,10 +24,12 @@ func diagnosticsItems(binDir string, autoFix bool) []Item {
 
 	if tcpTimestampsEnabled() {
 		add("ok", "TCP timestamps", "enabled")
-	} else if autoFix && run("netsh", "interface", "tcp", "set", "global", "timestamps=enabled") == nil {
-		add("fixed", "TCP timestamps", "enabled through netsh")
+	} else if !autoFix {
+		add("warn", "TCP timestamps", "disabled; sieve enables them before sifting, or run diagnostics with --fix")
+	} else if _, err := EnsureTCPTimestamps(); err != nil {
+		add("fail", "TCP timestamps", err.Error())
 	} else {
-		add("warn", "TCP timestamps", "disabled; run diagnostics with --fix to enable")
+		add("fixed", "TCP timestamps", "enabled through netsh")
 	}
 
 	items = append(items, okIf(!processRunning("AdguardSvc.exe"), "Adguard", "process not found", "AdguardSvc.exe may conflict with Discord traffic"))
@@ -178,6 +180,20 @@ func systemProxyEnabled() bool {
 	return err == nil && strings.Contains(string(out), "0x1")
 }
 
+// EnsureTCPTimestamps turns on RFC 1323 timestamps, which Windows ships
+// disabled and which strategies using --dpi-desync-fooling=ts cannot work
+// without; Flowseal's own scripts do the same before starting winws. It
+// reports whether the setting had to be changed.
+func EnsureTCPTimestamps() (bool, error) {
+	if tcpTimestampsEnabled() {
+		return false, nil
+	}
+	if err := run("netsh", "interface", "tcp", "set", "global", "timestamps=enabled"); err != nil {
+		return false, fmt.Errorf("enable TCP timestamps: %w", err)
+	}
+	return true, nil
+}
+
 func tcpTimestampsEnabled() bool {
 	out, err := paths.SystemCommand("netsh", "interface", "tcp", "show", "global").CombinedOutput()
 	return err == nil && timestampsRowEnabled(string(out))
@@ -185,11 +201,12 @@ func tcpTimestampsEnabled() bool {
 
 // timestampsRowEnabled inspects only the timestamps row: other rows such as
 // "Receive-Side Scaling State" also read "enabled", so matching the whole
-// output reported timestamps as on while Windows had them off.
+// output reported timestamps as on while Windows had them off. The row is
+// also found by "1323" because netsh localizes its labels.
 func timestampsRowEnabled(netshOutput string) bool {
 	for _, line := range strings.Split(netshOutput, "\n") {
 		label, value, ok := strings.Cut(strings.ToLower(line), ":")
-		if ok && strings.Contains(label, "timestamps") {
+		if ok && (strings.Contains(label, "timestamps") || strings.Contains(label, "1323")) {
 			return strings.TrimSpace(value) == "enabled"
 		}
 	}

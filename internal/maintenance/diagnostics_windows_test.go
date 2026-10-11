@@ -24,6 +24,7 @@ func TestTimestampsRowEnabled(t *testing.T) {
 		{"enabled", fmt.Sprintf(netshGlobalTemplate, "enabled"), true},
 		{"disabled while other rows are enabled", fmt.Sprintf(netshGlobalTemplate, "disabled"), false},
 		{"legacy label", "Timestamps : enabled\r\n", true},
+		{"localized label", "Временные метки RFC 1323 : enabled\r\n", true},
 		{"row missing", "Receive-Side Scaling State : enabled\r\n", false},
 	}
 

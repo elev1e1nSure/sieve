@@ -2,6 +2,11 @@
 
 package maintenance
 
+// EnsureTCPTimestamps is a no-op off Windows, where winws does not run.
+func EnsureTCPTimestamps() (bool, error) {
+	return false, nil
+}
+
 func diagnosticsItems(_ string, _ bool) []Item {
 	return []Item{{
 		Status:  "warn",
