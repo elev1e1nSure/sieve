@@ -44,6 +44,14 @@ func diagnosticsItems(binDir string, autoFix bool) []Item {
 		add("fail", "WinDivert driver", "WinDivert64.sys file was not found in bin")
 	}
 
+	if tunnel, err := TunnelRoute(); err != nil {
+		add("warn", "Internet route", err.Error())
+	} else if tunnel != "" {
+		add("warn", "Internet route", "goes through "+tunnel+"; turn the VPN off while sifting")
+	} else {
+		add("ok", "Internet route", "not through a VPN tunnel")
+	}
+
 	if vpn := matchingServiceNames("VPN"); len(vpn) > 0 {
 		add("warn", "VPN services", "found: "+strings.Join(vpn, ", "))
 	} else {

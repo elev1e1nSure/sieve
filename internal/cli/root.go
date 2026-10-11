@@ -231,6 +231,9 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 	} else if changed {
 		startupNotices = append(startupNotices, "TCP timestamps enabled for ts-fooling strategies")
 	}
+	if tunnel, err := maintenance.TunnelRoute(); err == nil && tunnel != "" {
+		startupNotices = append(startupNotices, "internet traffic goes through "+tunnel+" — results will reflect the VPN, not the strategy")
+	}
 
 	cacheStore := cache.NewStore()
 	if runtime.NoCache {
