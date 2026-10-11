@@ -12,6 +12,17 @@ const (
 	defaultTimeout = 5 * time.Second
 	discordURL     = "https://discord.com"
 	youtubeURL     = "https://www.youtube.com"
+
+	// probeBodyLimit sits well past the ~16 KB after which DPI freezes
+	// throttled TLS sessions, so a probe that reads it proves the bypass held
+	// beyond the handshake without downloading a whole page through a
+	// throttled path.
+	probeBodyLimit = 64 << 10
+	// Even a working strategy loses the odd connection on a lossy, throttled
+	// path. Requiring every single request to pass rejected working
+	// strategies about half the time, so each target gets a short vote.
+	probeAttempts = 3
+	probeQuorum   = 2
 )
 
 type Tester struct {
@@ -49,11 +60,11 @@ func (t Tester) Test(ctx context.Context) TestResult {
 
 	results := make(chan checkResult, 2)
 	go func() {
-		ok, err := t.check(ctx, client, discordURL)
+		ok, err := t.probe(ctx, client, discordURL)
 		results <- checkResult{discord: true, ok: ok, err: err}
 	}()
 	go func() {
-		ok, err := t.check(ctx, client, youtubeURL)
+		ok, err := t.probe(ctx, client, youtubeURL)
 		results <- checkResult{ok: ok, err: err}
 	}()
 
@@ -77,6 +88,30 @@ func (t Tester) Test(ctx context.Context) TestResult {
 	}
 }
 
+// probe checks url until probeQuorum attempts succeed, stopping as soon as
+// the remaining attempts can no longer change the verdict.
+func (t Tester) probe(ctx context.Context, client *http.Client, url string) (bool, error) {
+	successes, failures := 0, 0
+	var lastErr error
+	for successes < probeQuorum && failures <= probeAttempts-probeQuorum {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		ok, err := t.check(ctx, client, url)
+		if ok {
+			successes++
+			continue
+		}
+		failures++
+		lastErr = err
+	}
+
+	if successes < probeQuorum {
+		return false, lastErr
+	}
+	return true, nil
+}
+
 func (t Tester) check(ctx context.Context, client *http.Client, url string) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -89,10 +124,9 @@ func (t Tester) check(ctx context.Context, client *http.Client, url string) (boo
 		return false, err
 	}
 	defer resp.Body.Close()
-	// Draining the body (not just checking the status) confirms the DPI
-	// bypass actually lets the full response through, not just a TCP
-	// handshake or a truncated reply; bounded by the client's own Timeout.
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+	// Reading the body (not just checking the status) confirms the bypass
+	// lets data through past the handshake, not just a truncated reply.
+	if _, err := io.Copy(io.Discard, io.LimitReader(resp.Body, probeBodyLimit)); err != nil {
 		return false, fmt.Errorf("read %s response: %w", url, err)
 	}
 
@@ -109,7 +143,11 @@ func (t Tester) client() (*http.Client, func()) {
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Every attempt must cross the DPI on a fresh connection.
 	transport.DisableKeepAlives = true
+	// probeBodyLimit counts decompressed bytes; with gzip the limit would be
+	// reached after a few KB on the wire, short of where throttling bites.
+	transport.DisableCompression = true
 	client := &http.Client{Timeout: t.Timeout, Transport: transport}
 	return client, transport.CloseIdleConnections
 }

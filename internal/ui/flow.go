@@ -28,10 +28,7 @@ type Flow struct {
 	Ctx      context.Context
 }
 
-const (
-	winwsReadyMarker          = "windivert initialized"
-	candidateValidationPasses = 2
-)
+const winwsReadyMarker = "windivert initialized"
 
 // noLuck and flowFinished are the two terminal messages Run can emit.
 func noLuck(err error) flowUpdateMsg {
@@ -100,20 +97,8 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 			return
 		}
 		if err == nil {
-			ok := true
-			var testErr error
-			for range candidateValidationPasses {
-				result, terr := f.testProcess(process)
-				if terr != nil {
-					testErr = terr
-					ok = false
-					break
-				}
-				if !result.Discord || !result.YouTube || result.Err != nil {
-					ok = false
-					break
-				}
-			}
+			result, testErr := f.testProcess(process)
+			ok := testErr == nil && result.Discord && result.YouTube && result.Err == nil
 			if errors.Is(testErr, context.Canceled) {
 				_ = f.Runner.Stop()
 				updates <- flowFinished()
