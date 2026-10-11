@@ -14,7 +14,8 @@ This project uses [`just`](https://github.com/casey/just) as the command runner;
 - `just fmt-check` — `gofmt -l main.go internal`, fails if any file needs formatting (no writes)
 - `just lint` — `go vet ./...` + `golangci-lint run` (config in `.golangci.yml`)
 - `just check` — composite `fmt-check` + `lint` + `test` + `build`; the single recipe CI (`.github/workflows/ci.yml`) invokes
-- `just test` — `go test ./...`; tests cover the pure logic (fsutil, cache ranking, version comparison, domain/list handling, log formatting, release fetch, connectivity checks) — the TUI, runner, and Win32 layers are untested by design
+- `just test` — `go test ./...`; tests cover the pure logic (fsutil, cache ranking, version comparison, domain/list handling, log formatting, release fetch and extraction, strategy `.bat` parsing, connectivity checks) — the TUI, runner, and Win32 layers are untested by design
+- `just sync-strategies` — refreshes the embedded fallback strategies (`internal/configs/flowseal/*.bat` + `version.txt`) from the latest Flowseal release
 - `just clean` — removes `sieve.exe` and `dist/`
 - `just icon` — regenerates `rsrc_windows_amd64.syso` from `assets/icon/icon.png` via [`go-winres`](https://github.com/tc-hib/go-winres); the `.syso` is committed and embedded automatically by `go build`/`go run`, so this only needs to run again after changing the source icon
 
@@ -37,7 +38,7 @@ Single-screen Bubble Tea state machine, not multi-page navigation. One `Model`/`
 
 - `model.go` — `App`/`Model` structs, `Init`/`Update` lifecycle, message types
 - `view.go` — `View()` rendering and **all `lipgloss` style/color vars**. The palette mirrors the project's website (warm dark grays, rust accent `#8C6B52`) — when touching UI colors, keep that consistency rather than reverting to default `lipgloss`/ANSI colors.
-- `flow.go` — the async pipeline: ensures assets are present (`internal/assets`), kills any leftover `winws.exe`, iterates cached-sorted configs (`internal/cache.Store.SortedConfigs`) starting one at a time via `internal/runner`, runs connectivity checks (`internal/tester`) after a warmup delay, and either keeps the first working process alive (`StateRunning`, streaming its logs) or falls through to `StateNoLuck`
+- `flow.go` — the async pipeline: ensures assets are present (`internal/assets`), kills any leftover `winws.exe`, iterates cached-sorted configs (`internal/cache.Store.SortedConfigs`) starting one at a time via `internal/runner`, waits for winws's `windivert initialized` marker (capped at 1.5s), runs the connectivity check (`internal/tester`), and either keeps the first working process alive (`StateRunning`, streaming its logs) or, after a "second look" round over configs that have passed before (`cache.Store.Proven`), falls through to `StateNoLuck`. winws failing to start or dying before the test is not cached as a config failure — it reflects the machine, not the strategy
 - `logs.go` — turns raw `winws`/WinDivert stdout lines into the friendly "clean log" view (vs. raw mode, toggled with `ctrl+o`)
 - `launcher.go` — the pre-run launcher menu (`LauncherModel`): start sifting, edit settings (auto-saved on change), or run maintenance actions via `internal/maintenance`
 
@@ -45,17 +46,19 @@ Single-screen Bubble Tea state machine, not multi-page navigation. One `Model`/`
 
 ### Config strategy data
 
-`internal/configs/configs.go` is a large generated-feeling list of `Config{Name, Args}` — `Args` are literal `winws` CLI flags with `{BIN}`/`{LISTS}` placeholders resolved against the downloaded Flowseal asset paths. `Config.Name` is also the cache key in `internal/cache` — **don't rename these without considering that it invalidates users' cached "known working config" data.**
+Strategies are not hand-maintained: `internal/configs` parses the winws command out of Flowseal's `general*.bat` scripts (`bat.go` — a deliberately narrow cmd tokenizer: quotes, caret escapes/continuations, and only the `%BIN%`/`%LISTS%`/`%GameFilterTCP%`/`%GameFilterUDP%` variables; anything else rejects the script). `configs.Load` reads the scripts extracted from the installed release (`%APPDATA%\sieve\strategies`), falls back to the embedded snapshot in `internal/configs/flowseal/` when there are none, and drops strategies that reference a missing `bin`/`lists` file (winws would exit on them immediately). Loading happens in the TUI after assets are ensured, not at startup. Never reintroduce a frozen arg list: the bin/lists assets auto-update, and a frozen copy silently broke when Flowseal 1.10.2 dropped a fake payload every strategy referenced.
+
+`Args` keep `{BIN}`/`{LISTS}`/`{GAME_TCP}`/`{GAME_UDP}` placeholders, resolved by `Config.Resolve`. `Config.Name` is the `.bat` file name without extension and doubles as the cache key in `internal/cache` — upstream renaming a script resets its cached record.
 
 ### Supporting packages
 
-- `internal/assets` — downloads/extracts the Flowseal `zapret-discord-youtube` release zip (bin + lists) into `%APPDATA%\sieve`, reports progress via callback
+- `internal/assets` — downloads/extracts the Flowseal `zapret-discord-youtube` release zip into `%APPDATA%\sieve`: `bin`/`lists` are merged (identical files left in place — the loaded WinDivert driver can be locked), `general*.bat` replace the `strategies` dir wholesale so dropped strategies disappear; an install without a `strategies` dir is re-extracted. Reports progress via callback
 - `internal/cache` — JSON-persisted per-config success/failure record at `%APPDATA%\sieve\cache.json`; `SortedConfigs` ranks previously-successful configs first so a second run finds a working config faster
 - `internal/settings` — `RuntimeOptions` persisted to `%APPDATA%\sieve\settings.json` (ipset mode, domains, game filter, cache toggle) plus the ipset/domain list file manipulation (`lists.go`)
-- `internal/maintenance` — `Service` behind both the launcher's maintenance menu and the one-shot CLI flags (stop, reset cache, update ipset, self-update); `diagnostics_windows.go`/`diagnostics_other.go` hold the `--diagnostics`/`--status`/`--clear-discord-cache` platform-specific checks (build-tag split, like `runner`)
+- `internal/maintenance` — `Service` behind both the launcher's maintenance menu and the one-shot CLI flags (stop, reset cache, update ipset, self-update); `diagnostics_windows.go`/`diagnostics_other.go` hold the `--diagnostics`/`--status`/`--clear-discord-cache` platform-specific checks (build-tag split, like `runner`). Two of its checks also run before every sifting (`runSieve`): `EnsureTCPTimestamps` (Windows ships them off; `--dpi-desync-fooling=ts` strategies need them, as Flowseal's own scripts assume) and `TunnelRoute` (`route_windows.go`; warns when the internet route goes through a VPN adapter, which makes test results meaningless)
 - `internal/tray` — Windows system-tray icon via raw Win32 calls; only active when sieve owns its console (double-click launch), stubbed on other platforms
 - `internal/runner` — starts/stops Sieve-owned `winws.exe` processes and streams their stdout/stderr; it intentionally does not stop/delete the global WinDivert service because other applications may share it
-- `internal/tester` — HTTP reachability check against `discord.com` and `www.youtube.com`, used to judge whether a running config actually works
+- `internal/tester` — HTTP reachability check against `discord.com` and `www.youtube.com`, used to judge whether a running config actually works. Each target needs 2 of 3 attempts (a single dropped connection through a throttled path used to reject working configs about half the time); each attempt is a fresh, uncompressed connection whose body read stops at 64 KiB — past the ~16 KB where DPI freezes throttled TLS sessions, without downloading whole pages
 - `internal/selfupdate` — checks the latest sieve GitHub release, matches a compatible asset by name (`sieve-windows-amd64.exe` preferred, `sieve.exe` as legacy fallback — see naming note below), then swaps the running executable in place (rename aside → copy → hash-verify) and optionally relaunches into the same console; the `.old` backup is cleaned up on the next start
 - `internal/admin`, `internal/paths` — UAC elevation and the `%APPDATA%\sieve` install dir, each with `_windows.go`/`_other.go` split
 - `internal/github`, `internal/fsutil` — shared GitHub latest-release fetch (used by `assets` and `selfupdate`) and the atomic file-write helper (used by every JSON/list store)
