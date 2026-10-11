@@ -180,8 +180,20 @@ func systemProxyEnabled() bool {
 
 func tcpTimestampsEnabled() bool {
 	out, err := paths.SystemCommand("netsh", "interface", "tcp", "show", "global").CombinedOutput()
-	lower := strings.ToLower(string(out))
-	return err == nil && strings.Contains(lower, "timestamps") && strings.Contains(lower, "enabled")
+	return err == nil && timestampsRowEnabled(string(out))
+}
+
+// timestampsRowEnabled inspects only the timestamps row: other rows such as
+// "Receive-Side Scaling State" also read "enabled", so matching the whole
+// output reported timestamps as on while Windows had them off.
+func timestampsRowEnabled(netshOutput string) bool {
+	for _, line := range strings.Split(netshOutput, "\n") {
+		label, value, ok := strings.Cut(strings.ToLower(line), ":")
+		if ok && strings.Contains(label, "timestamps") {
+			return strings.TrimSpace(value) == "enabled"
+		}
+	}
+	return false
 }
 
 func intelConnectivityFound() bool {
