@@ -1,0 +1,3 @@
+# gofmt requires LF; without this, Windows runners check files out as CRLF
+# and fmt-check flags every Go file.
+* text=auto eol=lf
