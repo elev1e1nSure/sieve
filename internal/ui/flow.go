@@ -73,7 +73,7 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		default:
 		}
 
-		process, err := f.Runner.Start(winwsPath, config.ResolveWithOptions(f.Assets.BinDir, f.Assets.ListsDir, f.Settings))
+		process, err := f.Runner.Start(winwsPath, config.Resolve(f.Assets.BinDir, f.Assets.ListsDir, f.Settings))
 		updates <- flowUpdateMsg{
 			kind:          flowTesting,
 			currentConfig: config.Name,
@@ -342,6 +342,17 @@ func (m Model) handleAssetUpdate(msg assetUpdateMsg) (Model, tea.Cmd) {
 	}
 	m.ui.startupNotices = append(m.ui.startupNotices, report...)
 
+	set, err := configs.Load(msg.info.StrategiesDir, msg.info.BinDir, msg.info.ListsDir)
+	if err != nil {
+		m.ui.state = StateNoLuck
+		m.flow.err = err
+		m.refreshBody()
+		return m, nil
+	}
+	m.ui.startupNotices = append(m.ui.startupNotices, set.Notices...)
+	m.flow.configs = set.Configs
+	m.flow.configTotal = len(set.Configs)
+
 	m.ui.state = StateTesting
 	m.flow.currentConfig = "starting"
 	m.flow.flowC = make(chan flowUpdateMsg)
@@ -394,7 +405,7 @@ func (m Model) runFlow(updates chan<- flowUpdateMsg) tea.Cmd {
 			Cache:    m.app.Cache,
 			Runner:   m.app.Runner,
 			Tester:   m.app.Tester,
-			Configs:  m.app.Configs,
+			Configs:  m.flow.configs,
 			Settings: m.app.Settings,
 			Ctx:      m.ctx,
 		}

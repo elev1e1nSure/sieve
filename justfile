@@ -21,6 +21,10 @@ icon:
 test:
     go test ./...
 
+# refresh the embedded fallback strategies from the latest Flowseal release
+sync-strategies:
+    $release = Invoke-RestMethod https://api.github.com/repos/Flowseal/zapret-discord-youtube/releases/latest; $asset = $release.assets | Where-Object name -like '*.zip' | Select-Object -First 1; $tmp = Join-Path $env:TEMP "sieve-strategies-$([guid]::NewGuid())"; New-Item -ItemType Directory $tmp | Out-Null; try { $zip = Join-Path $tmp 'release.zip'; Invoke-WebRequest $asset.browser_download_url -OutFile $zip; Expand-Archive $zip -DestinationPath (Join-Path $tmp 'release'); Remove-Item internal/configs/flowseal/*.bat; Get-ChildItem (Join-Path $tmp 'release') -Recurse -Filter 'general*.bat' | Copy-Item -Destination internal/configs/flowseal; Set-Content -NoNewline -Path internal/configs/flowseal/version.txt -Value $release.tag_name; Write-Output "strategies synced from Flowseal $($release.tag_name)" } finally { Remove-Item -Recurse -Force $tmp }
+
 build:
     $version = if ($env:VERSION) { $env:VERSION } else { 'dev' }; $commit = git rev-parse --short HEAD; $date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); go build -ldflags "-s -w -X github.com/elev1e1nSure/sieve/internal/version.Version=$version -X github.com/elev1e1nSure/sieve/internal/version.Commit=$commit -X github.com/elev1e1nSure/sieve/internal/version.Date=$date" -o sieve.exe .
 

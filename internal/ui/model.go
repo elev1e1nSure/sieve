@@ -35,7 +35,6 @@ const (
 type App struct {
 	Assets         assets.AssetManager
 	Cache          cache.CacheStore
-	Configs        []configs.Config
 	Runner         runner.ProcessRunner
 	Tester         tester.ConnectivityTester
 	StartupNotices []string
@@ -70,6 +69,7 @@ type flowState struct {
 	err           error
 	progressC     chan assetUpdateMsg
 	flowC         chan flowUpdateMsg
+	configs       []configs.Config
 	currentConfig string
 	configIndex   int
 	configTotal   int
@@ -137,8 +137,7 @@ func NewModel(app App) Model {
 			startupNotices: append([]string(nil), app.StartupNotices...),
 		},
 		flow: flowState{
-			progressC:   make(chan assetUpdateMsg),
-			configTotal: len(app.Configs),
+			progressC: make(chan assetUpdateMsg),
 		},
 	}
 }

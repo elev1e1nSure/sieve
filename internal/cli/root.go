@@ -15,7 +15,6 @@ import (
 	"github.com/elev1e1nSure/sieve/internal/admin"
 	"github.com/elev1e1nSure/sieve/internal/assets"
 	"github.com/elev1e1nSure/sieve/internal/cache"
-	"github.com/elev1e1nSure/sieve/internal/configs"
 	"github.com/elev1e1nSure/sieve/internal/maintenance"
 	"github.com/elev1e1nSure/sieve/internal/runner"
 	"github.com/elev1e1nSure/sieve/internal/selfupdate"
@@ -261,7 +260,6 @@ func runSieve(ctx context.Context, startupNotices []string) (runErr error) {
 	app := ui.App{
 		Assets:         assets.NewManager(),
 		Cache:          &cacheStore,
-		Configs:        configs.All(),
 		Runner:         processRunner,
 		Tester:         tester.New(time.Duration(runtime.TestTimeout) * time.Second),
 		StartupNotices: startupNotices,

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ import (
 const (
 	defaultGitHubAPI = "https://api.github.com/repos/Flowseal/zapret-discord-youtube/releases/latest"
 	versionFileName  = "version.txt"
+	strategiesDir    = "strategies"
 )
 
 type Manager struct {
@@ -47,6 +49,9 @@ type Info struct {
 	InstallDir string
 	BinDir     string
 	ListsDir   string
+	// StrategiesDir holds the release's general*.bat scripts, the source of
+	// the winws strategies sieve sifts through.
+	StrategiesDir string
 	// Notice carries a non-fatal startup warning (e.g. release check failed,
 	// running on previously downloaded assets) for the TUI to display.
 	Notice string
@@ -68,6 +73,10 @@ func (m Manager) BinDir() string {
 
 func (m Manager) ListsDir() string {
 	return filepath.Join(m.InstallDir, "lists")
+}
+
+func (m Manager) StrategiesDir() string {
+	return filepath.Join(m.InstallDir, strategiesDir)
 }
 
 func (m Manager) VersionFile() string {
@@ -99,7 +108,9 @@ func (m Manager) Ensure(ctx context.Context, progress func(Progress)) (Info, err
 		return Info{}, fmt.Errorf("flowseal release: %w", err)
 	}
 
-	if installed == latest.TagName && m.hasRequiredDirs() {
+	// Installs from before sieve read strategies from the release have no
+	// strategies dir yet; re-extracting the same release fills it in.
+	if installed == latest.TagName && m.hasRequiredDirs() && dirExists(m.StrategiesDir()) {
 		if err := ensureUserListFiles(m.ListsDir()); err != nil {
 			return Info{}, err
 		}
@@ -118,8 +129,8 @@ func (m Manager) Ensure(ctx context.Context, progress func(Progress)) (Info, err
 	}
 	defer os.Remove(zipPath)
 
-	progress(Progress{Phase: "extracting", Message: "extracting bin and lists"})
-	if err := extractBinLists(zipPath, m.InstallDir); err != nil {
+	progress(Progress{Phase: "extracting", Message: "extracting bin, lists and strategies"})
+	if err := extractRelease(zipPath, m.InstallDir); err != nil {
 		return Info{}, err
 	}
 	if err := ensureUserListFiles(m.ListsDir()); err != nil {
@@ -192,11 +203,12 @@ func (m Manager) hasRequiredDirs() bool {
 
 func (m Manager) info(version string, updated bool) Info {
 	return Info{
-		Version:    version,
-		Updated:    updated,
-		InstallDir: m.InstallDir,
-		BinDir:     m.BinDir(),
-		ListsDir:   m.ListsDir(),
+		Version:       version,
+		Updated:       updated,
+		InstallDir:    m.InstallDir,
+		BinDir:        m.BinDir(),
+		ListsDir:      m.ListsDir(),
+		StrategiesDir: m.StrategiesDir(),
 	}
 }
 
@@ -235,7 +247,7 @@ func (w *progressWriter) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-func extractBinLists(zipPath, installDir string) error {
+func extractRelease(zipPath, installDir string) error {
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return err
@@ -252,6 +264,9 @@ func extractBinLists(zipPath, installDir string) error {
 	for _, file := range reader.File {
 		targetRel, ok := binOrListsPath(file.Name)
 		if !ok {
+			targetRel, ok = strategyPath(file.Name)
+		}
+		if !ok {
 			continue
 		}
 		if err := extractFile(file, filepath.Join(stagingDir, targetRel)); err != nil {
@@ -266,8 +281,17 @@ func extractBinLists(zipPath, installDir string) error {
 	if !dirExists(filepath.Join(stagingDir, "bin")) || !dirExists(filepath.Join(stagingDir, "lists")) {
 		return errors.New("flowseal archive must contain both bin and lists")
 	}
+	// An empty dir still marks the release as extracted, so a release that
+	// ships no strategies falls back to the built-in snapshot instead of
+	// being downloaded again on every start.
+	if err := os.MkdirAll(filepath.Join(stagingDir, strategiesDir), 0o755); err != nil {
+		return err
+	}
 
-	return replaceDirs(stagingDir, installDir)
+	if err := replaceDirs(stagingDir, installDir); err != nil {
+		return err
+	}
+	return replaceStrategies(stagingDir, installDir)
 }
 
 func extractFile(file *zip.File, target string) error {
@@ -317,6 +341,18 @@ func binOrListsPath(name string) (string, bool) {
 	return "", false
 }
 
+// strategyPath maps a Flowseal general*.bat script, wherever the archive
+// keeps it, into the flat strategies dir.
+func strategyPath(name string) (string, bool) {
+	base := path.Base(filepath.ToSlash(name))
+	lower := strings.ToLower(base)
+	if !strings.HasPrefix(lower, "general") || !strings.HasSuffix(lower, ".bat") || strings.ContainsAny(base, `:\`) {
+		return "", false
+	}
+
+	return filepath.Join(strategiesDir, base), true
+}
+
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
@@ -336,6 +372,17 @@ func replaceDirs(stagingDir, installDir string) error {
 	}
 
 	return nil
+}
+
+// replaceStrategies swaps the strategies dir wholesale, unlike bin and lists:
+// a strategy Flowseal dropped must disappear rather than linger and reference
+// fake payloads that no longer ship.
+func replaceStrategies(stagingDir, installDir string) error {
+	dst := filepath.Join(installDir, strategiesDir)
+	if err := os.RemoveAll(dst); err != nil {
+		return err
+	}
+	return os.Rename(filepath.Join(stagingDir, strategiesDir), dst)
 }
 
 // mergeDir leaves identical installed files in place. WinDivert's loaded
