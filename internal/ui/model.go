@@ -73,6 +73,7 @@ type flowState struct {
 	currentConfig string
 	configIndex   int
 	configTotal   int
+	secondLook    bool
 	runningConfig string
 	runStartedAt  time.Time
 	process       *runner.Process
@@ -101,6 +102,7 @@ type flowUpdateMsg struct {
 	currentConfig string
 	index         int
 	total         int
+	secondLook    bool
 	process       *runner.Process
 	log           string
 	err           error

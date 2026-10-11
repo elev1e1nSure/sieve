@@ -39,6 +39,21 @@ func flowFinished() flowUpdateMsg {
 	return flowUpdateMsg{kind: flowDone, done: true}
 }
 
+// trial is how one config's run ended.
+type trial int
+
+const (
+	trialRejected trial = iota // winws ran but the connectivity test failed
+	trialDied                  // winws failed to start or exited on its own
+	trialFinal                 // a terminal message was sent; Run must return
+)
+
+// step positions a config in the testing view.
+type step struct {
+	index, total int
+	secondLook   bool
+}
+
 func (f Flow) Run(updates chan<- flowUpdateMsg) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -47,101 +62,109 @@ func (f Flow) Run(updates chan<- flowUpdateMsg) {
 		close(updates)
 	}()
 
-	store := f.Cache
-	if err := store.Load(); err != nil {
+	if err := f.Cache.Load(); err != nil {
 		updates <- noLuck(err)
 		return
 	}
-	sorted := store.SortedConfigs(f.Configs)
-	total := len(sorted)
+	sorted := f.Cache.SortedConfigs(f.Configs)
 	winwsPath := filepath.Join(f.Assets.BinDir, "winws.exe")
 	if err := f.Runner.Prepare(winwsPath); err != nil {
 		updates <- noLuck(err)
 		return
 	}
-	startFailures := 0
-	var firstStartErr error
 
+	died := 0
+	var firstDeath error
+	var secondLook []configs.Config
 	for i, config := range sorted {
-		select {
-		case <-f.Ctx.Done():
-			updates <- flowFinished()
+		outcome, err := f.try(updates, winwsPath, config, step{index: i + 1, total: len(sorted)})
+		switch outcome {
+		case trialFinal:
 			return
-		default:
+		case trialDied:
+			died++
+			if firstDeath == nil {
+				firstDeath = err
+			}
+		case trialRejected:
+			if f.Cache.Proven(config.Name) {
+				secondLook = append(secondLook, config)
+			}
 		}
+	}
 
-		process, err := f.Runner.Start(winwsPath, config.Resolve(f.Assets.BinDir, f.Assets.ListsDir, f.Settings))
-		updates <- flowUpdateMsg{
-			kind:          flowTesting,
-			currentConfig: config.Name,
-			index:         i + 1,
-			total:         total,
-			process:       process,
-		}
-		if err != nil {
-			startFailures++
-			if firstStartErr == nil {
-				firstStartErr = err
-			}
-			if cacheErr := store.RecordResult(config.Name, false, time.Now()); cacheErr != nil {
-				updates <- noLuck(cacheErr)
-				return
-			}
-			continue
-		}
-
-		startupOutput, err := waitForProcessReady(f.Ctx, process, winwsReadinessTimeout)
-		if errors.Is(err, context.Canceled) {
-			_ = f.Runner.Stop()
-			updates <- flowFinished()
-			return
-		}
-		if err == nil {
-			result, testErr := f.testProcess(process)
-			ok := testErr == nil && result.Discord && result.YouTube && result.Err == nil
-			if errors.Is(testErr, context.Canceled) {
-				_ = f.Runner.Stop()
-				updates <- flowFinished()
-				return
-			}
-			err = testErr
-			if err == nil {
-				if cacheErr := store.RecordResult(config.Name, ok, time.Now()); cacheErr != nil {
-					_ = f.Runner.Stop()
-					updates <- noLuck(cacheErr)
-					return
-				}
-				if ok {
-					f.streamLogs(updates, config.Name, process, startupOutput)
-					return
-				}
-			}
-		}
-		if err != nil {
-			// winws died before or during validation — a per-config failure,
-			// not a reason to abandon the remaining configs.
-			startFailures++
-			if firstStartErr == nil {
-				firstStartErr = withProcessOutput(err, startupOutput)
-			}
-			if cacheErr := store.RecordResult(config.Name, false, time.Now()); cacheErr != nil {
-				_ = f.Runner.Stop()
-				updates <- noLuck(cacheErr)
-				return
-			}
-		}
-
-		if stopErr := f.Runner.Stop(); stopErr != nil {
-			updates <- noLuck(withProcessOutput(stopErr, drainProcessOutput(process, 3)))
+	// A config that has worked before and failed once now is more likely a
+	// network hiccup than a dead strategy; give those one more chance before
+	// declaring that nothing works.
+	for i, config := range secondLook {
+		if outcome, _ := f.try(updates, winwsPath, config, step{index: i + 1, total: len(secondLook), secondLook: true}); outcome == trialFinal {
 			return
 		}
 	}
 
-	if startFailures == total && firstStartErr != nil {
-		updates <- noLuck(fmt.Errorf("winws could not start or stay up for any config: %w", firstStartErr))
+	if died == len(sorted) && firstDeath != nil {
+		updates <- noLuck(fmt.Errorf("winws could not start or stay up for any config: %w", firstDeath))
 		return
 	}
 	updates <- flowUpdateMsg{kind: flowNoLuck, done: true}
+}
+
+// try starts one config, waits for winws to be ready and runs the
+// connectivity test. On success it hands over to streamLogs.
+func (f Flow) try(updates chan<- flowUpdateMsg, winwsPath string, config configs.Config, at step) (trial, error) {
+	if f.Ctx.Err() != nil {
+		updates <- flowFinished()
+		return trialFinal, nil
+	}
+
+	process, err := f.Runner.Start(winwsPath, config.Resolve(f.Assets.BinDir, f.Assets.ListsDir, f.Settings))
+	updates <- flowUpdateMsg{
+		kind:          flowTesting,
+		currentConfig: config.Name,
+		index:         at.index,
+		total:         at.total,
+		secondLook:    at.secondLook,
+		process:       process,
+	}
+	if err != nil {
+		// Not cached as a config failure: a winws that cannot start says more
+		// about the machine (driver, rights, another WinDivert client) than
+		// about the strategy, and would bury working configs in the ranking.
+		return trialDied, err
+	}
+
+	startupOutput, err := waitForProcessReady(f.Ctx, process, winwsReadinessTimeout)
+	if err == nil {
+		var result tester.TestResult
+		if result, err = f.testProcess(process); err == nil {
+			ok := result.Discord && result.YouTube && result.Err == nil
+			if cacheErr := f.Cache.RecordResult(config.Name, ok, time.Now()); cacheErr != nil {
+				_ = f.Runner.Stop()
+				updates <- noLuck(cacheErr)
+				return trialFinal, nil
+			}
+			if ok {
+				f.streamLogs(updates, config.Name, process, startupOutput)
+				return trialFinal, nil
+			}
+		}
+	}
+	if errors.Is(err, context.Canceled) {
+		_ = f.Runner.Stop()
+		updates <- flowFinished()
+		return trialFinal, nil
+	}
+
+	if stopErr := f.Runner.Stop(); stopErr != nil {
+		updates <- noLuck(withProcessOutput(stopErr, drainProcessOutput(process, 3)))
+		return trialFinal, nil
+	}
+	if err != nil {
+		// winws died before or during the test — a per-config failure, not a
+		// reason to abandon the remaining configs; not cached, as above.
+		return trialDied, withProcessOutput(err, startupOutput)
+	}
+	return trialRejected, nil
 }
 
 // streamLogs relays winws output for the accepted config until the process
@@ -357,6 +380,7 @@ func (m Model) handleFlowUpdate(msg flowUpdateMsg) Model {
 		m.flow.currentConfig = msg.currentConfig
 		m.flow.configIndex = msg.index
 		m.flow.configTotal = msg.total
+		m.flow.secondLook = msg.secondLook
 		m.flow.process = msg.process
 	case flowRunning:
 		m.ui.state = StateRunning

@@ -27,6 +27,7 @@ type CacheStore interface {
 	Load() error
 	RecordResult(name string, success bool, at time.Time) error
 	SortedConfigs(all []configs.Config) []configs.Config
+	Proven(name string) bool
 }
 
 type Data struct {
@@ -138,6 +139,12 @@ func (s Store) SortedConfigs(all []configs.Config) []configs.Config {
 	})
 
 	return sorted
+}
+
+// Proven reports whether a config has passed at least once, which makes a
+// later failure more likely noise than a strategy that stopped working.
+func (s Store) Proven(name string) bool {
+	return s.Data.Configs[name].SuccessCount > 0
 }
 
 func (s Store) rank(config configs.Config) sortRank {

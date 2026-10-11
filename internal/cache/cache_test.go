@@ -125,3 +125,23 @@ func TestDisabledStore(t *testing.T) {
 		t.Fatalf("disabled store reordered configs: %v", got)
 	}
 }
+
+func TestProvenSurvivesLaterFailures(t *testing.T) {
+	store := testStore(t)
+	now := time.Now()
+	for _, result := range []struct {
+		name    string
+		success bool
+	}{{"worked", true}, {"worked", false}, {"never", false}} {
+		if err := store.RecordResult(result.name, result.success, now); err != nil {
+			t.Fatalf("RecordResult: %v", err)
+		}
+	}
+
+	if !store.Proven("worked") {
+		t.Fatal("Proven(worked) = false after an earlier success")
+	}
+	if store.Proven("never") || store.Proven("untested") {
+		t.Fatal("Proven reported a config that never passed")
+	}
+}

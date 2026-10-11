@@ -89,12 +89,19 @@ func (m Model) updatingContent() string {
 }
 
 func (m Model) testingContent() string {
+	title := " Testing configs"
+	if m.flow.secondLook {
+		title = " Second look"
+	}
 	lines := []string{
-		sectionTitleStyle.Render(m.ui.spinner.View() + " Testing configs"),
+		sectionTitleStyle.Render(m.ui.spinner.View() + title),
 		m.phaseLine(),
 		keyValue("current", fallback(m.flow.currentConfig, "starting")),
 		keyValue("progress", fmt.Sprintf("%d/%d", m.flow.configIndex, m.flow.configTotal)),
 		progressLine(int64(m.flow.configIndex), int64(m.flow.configTotal)),
+	}
+	if m.flow.secondLook {
+		lines = append(lines, mutedStyle.Render("nothing passed — re-sifting the configs that worked before"))
 	}
 
 	return strings.Join(m.withStartupNotices(lines), "\n")
