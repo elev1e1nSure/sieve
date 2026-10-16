@@ -183,7 +183,7 @@ sieve — Windows TUI на Bubble Tea и Lip Gloss. Скачивает рели�
 работающую стратегию. Ассеты и стратегии лежат в `%APPDATA%\sieve`,
 результаты кэшируются в `cache.json`, настройки — в `settings.json` там же.
 
-Детальное описание архитектуры — в [CLAUDE.md](CLAUDE.md).
+Детальное описание архитектуры — в [AGENTS.md](AGENTS.md).
 
 ## Лицензия
 
